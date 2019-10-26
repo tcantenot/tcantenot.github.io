@@ -8,7 +8,7 @@ tag:
 
 ## Tips
 
-[https://devblogs.nvidia.com/cuda-pro-tip-occupancy-api-simplifies-launch-configuration/](https://devblogs.nvidia.com/cuda-pro-tip-occupancy-api-simplifies-launch-configuration/)
+<https://devblogs.nvidia.com/cuda-pro-tip-occupancy-api-simplifies-launch-configuration>
 
 {% highlight cpp %}
 #include <stdio.h>
@@ -61,18 +61,18 @@ void launchMyKernel(int *array, int arrayCount)
 
 ## C++ wrappers
 
-[https://github.com/eyalroz/cuda-api-wrappers](https://github.com/eyalroz/cuda-api-wrappers)
+<https://github.com/eyalroz/cuda-api-wrappers>
 
 
 ## NVRTC
 
 ### NVRTC and MDL
 
-[http://on-demand.gputechconf.com/gtc/2017/presentation/s7185-roettger-mank-leveraging-nvrtc-optix-shaders-mdl-materials.pdf](http://on-demand.gputechconf.com/gtc/2017/presentation/s7185-roettger-mank-leveraging-nvrtc-optix-shaders-mdl-materials.pdf)
+<http://on-demand.gputechconf.com/gtc/2017/presentation/s7185-roettger-mank-leveraging-nvrtc-optix-shaders-mdl-materials.pdf>
 
 ### YAGAL (Yet Another GPGPU Library)
 
-[https://projekter.aau.dk/projekter/files/281555597/master.pdf](https://projekter.aau.dk/projekter/files/281555597/master.pdf)
+<https://projekter.aau.dk/projekter/files/281555597/master.pdf>
 
 
 ## NVProf
