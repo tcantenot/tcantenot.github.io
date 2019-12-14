@@ -7,14 +7,6 @@ tag:
   - pathtracing
 ---
 
-## Lambertian material
-
-When incoming rays hit a Lambertian material with reflectance $$R$$ (albedo), the following ray scattering *policies* are equivalent:
-- always scatter the incoming rays and attenuate by the reflection $$R$$
-- scatter with no attenuation but scatter only a fraction $$1 - R$$ of the incoming rays
-- scatter the incoming rays with a probability $$p$$ and attenuate by $$\frac{R}{p}$$
-
-
 ## Macbeth chart
 
 <https://github.com/colour-science/colour-nuke/tree/master/colour_nuke/resources/images/ColorChecker2005>
