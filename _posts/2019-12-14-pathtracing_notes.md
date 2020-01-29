@@ -24,3 +24,5 @@ When incoming rays hit a Lambertian material with reflectance $$R$$ (albedo), th
   * https://www.youtube.com/watch?v=P7wh6Hvsbb4
   * [Importance Sampling of Many Lights with Reinforcement Lightcuts Learning](https://arxiv.org/pdf/1911.10217.pdf) by Jacopo Pantaleoni
   * [Q-Learned Importance Sampling for Physically Based Light Transport on the GPU](https://dspace.library.uu.nl/handle/1874/362948) by Mastrigt, K. van
+
+- [Photon-based Next Event Estimation](https://github.com/AndiMiko/masterthesis/releases)
