@@ -90,7 +90,7 @@ html:not([data-mode]) .highlight .c1 { color: #5e5d83; font-style: italic; }
 html:not([data-mode]) .highlight .cp { color: #465457; font-weight: bold; }
 html:not([data-mode]) .highlight .cs { color: #465457; font-weight: bold; font-style: italic; }
 html:not([data-mode]) .highlight .err { color: #f8f8f2; background-color: #403d3d; }
-html:not([data-mode]) .highlight .gi { color: #a6e22e; }
+html:not([data-mode]) .highlight .gi { color: #a6e22e; }  // Generic.Inserted & Diff Inserted
 html:not([data-mode]) .highlight .gd { color: #f92672; }
 html:not([data-mode]) .highlight .ge { color: #1b1d1e; font-style: italic; }
 html:not([data-mode]) .highlight .gr { color: #f92672; }
@@ -133,14 +133,14 @@ html:not([data-mode]) .highlight .s { color: #d7d787; }
 html:not([data-mode]) .highlight .sa { color: #d7d787; }
 html:not([data-mode]) .highlight .dl { color: #d7d787; }
 html:not([data-mode]) .highlight .na { color: #a6e22e; }
-html:not([data-mode]) .highlight .nc { color: #a6e22e; font-weight: bold; }
+html:not([data-mode]) .highlight .nc { color: #97cd2c; font-weight: bold; } // Name.Class // original color: #a6e22e;
 html:not([data-mode]) .highlight .nd { color: #a6e22e; font-weight: bold; }
 html:not([data-mode]) .highlight .ne { color: #a6e22e; font-weight: bold; }
-html:not([data-mode]) .highlight .nf { color: #a6e22e; font-weight: bold; }
+html:not([data-mode]) .highlight .nf { color: #c0b12b; font-weight: bold; } // Name.Function // original color: #a6e22e;
 html:not([data-mode]) .highlight .fm { color: #a6e22e; font-weight: bold; }
 html:not([data-mode]) .highlight .no { color: #66d9ef; }
 html:not([data-mode]) .highlight .bp { color: #f8f8f2; }
-html:not([data-mode]) .highlight .nb { color: #f8f8f2; }
+html:not([data-mode]) .highlight .nb { color: #3d87e7; } // Name.Builtin // original color: #f8f8f2;
 html:not([data-mode]) .highlight .ni { color: #f8f8f2; }
 html:not([data-mode]) .highlight .nn { color: #f8f8f2; }
 html:not([data-mode]) .highlight .vc { color: #f8f8f2; }
@@ -149,7 +149,7 @@ html:not([data-mode]) .highlight .vi { color: #f8f8f2; }
 html:not([data-mode]) .highlight .nv { color: #f8f8f2; }
 html:not([data-mode]) .highlight .vm { color: #f8f8f2; }
 html:not([data-mode]) .highlight .w { color: #f8f8f2; }
-html:not([data-mode]) .highlight .nl { color: #f8f8f2; font-weight: bold; }
+html:not([data-mode]) .highlight .nl { color: #3d87e7; font-weight: bold; }  // Name.Label // original color: #f8f8f2;
 html:not([data-mode]) .highlight .nt { color: #f92672; }
 html:not([data-mode]) .highlight { color: #f8f8f2; background-color: #1b1d1e; }
 
@@ -165,7 +165,7 @@ html[data-mode=dark] .highlight .c1 { color: #5e5d83; font-style: italic; }
 html[data-mode=dark] .highlight .cp { color: #465457; font-weight: bold; }
 html[data-mode=dark] .highlight .cs { color: #465457; font-weight: bold; font-style: italic; }
 html[data-mode=dark] .highlight .err { color: #f8f8f2; background-color: #403d3d; }
-html[data-mode=dark] .highlight .gi { color: #a6e22e; }
+html[data-mode=dark] .highlight .gi { color: #a6e22e; }  // Generic.Inserted & Diff Inserted
 html[data-mode=dark] .highlight .gd { color: #f92672; }
 html[data-mode=dark] .highlight .ge { color: #1b1d1e; font-style: italic; }
 html[data-mode=dark] .highlight .gr { color: #f92672; }
@@ -208,14 +208,14 @@ html[data-mode=dark] .highlight .s { color: #d7d787; }
 html[data-mode=dark] .highlight .sa { color: #d7d787; }
 html[data-mode=dark] .highlight .dl { color: #d7d787; }
 html[data-mode=dark] .highlight .na { color: #a6e22e; }
-html[data-mode=dark] .highlight .nc { color: #a6e22e; font-weight: bold; }
+html[data-mode=dark] .highlight .nc { color: #97cd2c; font-weight: bold; } // Name.Class // original color: #a6e22e;
 html[data-mode=dark] .highlight .nd { color: #a6e22e; font-weight: bold; }
 html[data-mode=dark] .highlight .ne { color: #a6e22e; font-weight: bold; }
-html[data-mode=dark] .highlight .nf { color: #a6e22e; font-weight: bold; }
+html[data-mode=dark] .highlight .nf { color: #c0b12b; font-weight: bold; } // Name.Function // original color: #a6e22e;
 html[data-mode=dark] .highlight .fm { color: #a6e22e; font-weight: bold; }
 html[data-mode=dark] .highlight .no { color: #66d9ef; }
 html[data-mode=dark] .highlight .bp { color: #f8f8f2; }
-html[data-mode=dark] .highlight .nb { color: #f8f8f2; }
+html[data-mode=dark] .highlight .nb { color: #3d87e7; } // Name.Builtin // original color: #f8f8f2;
 html[data-mode=dark] .highlight .ni { color: #f8f8f2; }
 html[data-mode=dark] .highlight .nn { color: #f8f8f2; }
 html[data-mode=dark] .highlight .vc { color: #f8f8f2; }
@@ -224,7 +224,7 @@ html[data-mode=dark] .highlight .vi { color: #f8f8f2; }
 html[data-mode=dark] .highlight .nv { color: #f8f8f2; }
 html[data-mode=dark] .highlight .vm { color: #f8f8f2; }
 html[data-mode=dark] .highlight .w { color: #f8f8f2; }
-html[data-mode=dark] .highlight .nl { color: #f8f8f2; font-weight: bold; }
+html[data-mode=dark] .highlight .nl { color: #3d87e7; font-weight: bold; }  // Name.Label // original color: #f8f8f2;
 html[data-mode=dark] .highlight .nt { color: #f92672; }
 html[data-mode=dark] .highlight { color: #f8f8f2; background-color: #1b1d1e; }
 
