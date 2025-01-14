@@ -78,9 +78,10 @@ html:not([data-mode]) .highlight .gd { color: #f92672; } // Generic.Deleted & Di
 html:not([data-mode]) .highlight .gi { color: #a6e22e; } // Generic.Inserted & Diff Inserted
 */
 
+/*
 // https://github.com/mzlogin/rouge-themes/blob/master/dist/molokai.css
 html:not([data-mode]) .highlight table td { padding: 5px; }
-html:not([data-mode]) .highlight table pre { margin: 0; }
+html:not([data-mode]) .highlight table pre { margin: 0; tab-size: 4; -moz-tab-size: 4; -o-tab-size: 4; }
 html:not([data-mode]) .highlight .c { color: #5e5d83; font-style: italic; }
 html:not([data-mode]) .highlight .ch { color: #5e5d83; font-style: italic; }
 html:not([data-mode]) .highlight .cd { color: #5e5d83; font-style: italic; }
@@ -302,6 +303,7 @@ html[data-mode=light] .highlight .ow { color: #000000; font-weight: bold; }
 html[data-mode=light] .highlight .o { color: #000000; font-weight: bold; }
 html[data-mode=light] .highlight .w { color: #bbbbbb; }
 html[data-mode=light] .highlight { background-color: #f8f8f8; }
+*/
 
 
 /*
@@ -379,3 +381,190 @@ html[data-mode=light] .preview-zenburn .highlight .nf { color: #efef8f; }
 html[data-mode=light] .preview-zenburn .highlight .bp { color: #efef8f; }
 html[data-mode=light] .preview-zenburn .highlight .vc { color: #efef8f; }
 */
+
+
+// Use wider content size (default is max-width: 1250px;)
+// See: https://github.com/cotes2020/jekyll-theme-chirpy/blob/35c794cf5896565430389f35c660b88a93cebb17/_sass/base/_base.scss#L453
+//      https://github.com/cotes2020/jekyll-theme-chirpy/blob/35c794cf5896565430389f35c660b88a93cebb17/_sass/abstracts/_variables.scss#L14
+@media (min-width: 1650px) {
+  #main-wrapper > .container {
+    max-width: 1650px;
+    padding-left: 1.75rem !important;
+    padding-right: 1.75rem !important;
+
+  }
+}
+
+// Preformatted text block tab size
+pre {
+  tab-size: 4; /* Adjust the number for your preferred tab size */
+  -moz-tab-size: 4; /* Firefox support */
+  -o-tab-size: 4; /* Older Opera browsers */
+}
+
+// Code block tab size
+pre code {
+  tab-size: 4;
+}
+
+// Collapsing block
+details summary {
+  cursor: pointer;
+  font-weight: bold;
+}
+
+
+/*
+*  Name: Gaia (dark variant)
+*  Author: Protesilaos Stavrou <public@protesilaos.com>
+*  Description: Tested with Rouge-enabled Jekyll sites
+*  Theme URL: https://protesilaos.com/gaia
+*/
+
+/*
+// Variables ----------------------------
+$dbg: #2d2e2f; // Dark background
+$dhl: #3d3e3f; // Dark highlight
+$dt2: #786c4d; // Dark bg text secondary
+$dt1: #94ae9f; // Dark bg text primary
+$lbg: #ebeddf; // Light background
+$lhl: #dbddcf; // Light highlight
+$lt2: #7b8d9d; // Light bg text secondary
+$lt1: #5B6c4a; // Light bg text primary
+$red: #a67336; // Red
+$ora: #a9880b; // Orange
+$yel: #ad9f4d; // Yellow
+$gre: #7c8e2d; // Green
+$cya: #5d9d7c; // Cyan
+$blu: #6c9cba; // Blue
+$vio: #8a8db7; // Violet
+$mag: #bd9198; // Magenta
+
+// Base Defaults ------------------------
+$text1: $dt1;
+$text2: $dt2;
+$background: $dbg;
+$highlight: $dhl;
+
+// Colour order
+$primary1: #a67336;
+$primary2: #7c8e2d;
+$primary3: #a9880b;
+$secondary1: #5d9d7c;
+$secondary2: #ad9f4d;
+$tertiary1: #6c9cba;
+$tertiary2: #8a8db7;
+$tertiary3: #bd9198;
+*/
+
+
+/*
+*  Name: Playa (dark variant)
+*  Author: Protesilaos Stavrou <public@protesilaos.com>
+*  Description: Tested with Rouge-enabled Jekyll sites
+*  Theme URL: https://protesilaos.com/playa
+*/
+
+// Variables ----------------------------
+$dbg: #00000000; //#234154; // Dark background
+$dhl: #335f64; // Dark highlight
+$dt2: #868265; // Dark bg text secondary
+$dt1: #93b9b4; // Dark bg text primary
+$lbg: #faf1e0; // Light background
+$lhl: #eae1d0; // Light highlight
+$lt2: #7c949d; // Light bg text secondary
+$lt1: #5a7160; // Light bg text primary
+$red: #ca6e6a; // Red
+$ora: #cb8d6a; // Orange
+$yel: #ccb45d; // Yellow
+$gre: #7db97a; // Green
+$cya: #4dc4b7; // Cyan
+$blu: #65afcd; // Blue
+$vio: #aa85cb; // Violet
+$mag: #cb7e9a; // Magenta
+
+// Base Defaults ------------------------
+$text1: $dt1;
+$text2: $dt2;
+$background: $dbg;
+$highlight: $dhl;
+
+// Colour order
+$primary1: #65afcd;
+$primary2: #7db97a;
+$primary3: #4dc4b7;
+$secondary1: #cb8d6a;
+$secondary2: #ccb45d;
+$tertiary1: #ca6e6a;
+$tertiary2: #aa85cb;
+$tertiary3: #cb7e9a;
+
+// Syntax -------------------------------
+// NOTE Classes are prefixed with .highlight
+// NOTE This is the default for the rouge gem
+html[data-mode=dark] .highlight {
+	background: $background;
+	color: $text1;
+	padding: 1rem;
+
+	.c { color: $text2; font-style: italic } /* Comment */
+	.err { color: $background; background-color: $tertiary3 } /* Error */
+	.k { color: $primary1 } /* Keyword */
+	.o { color: $text1; font-weight: bold } /* Operator */
+	.cm { color: $text2; font-style: italic } /* Comment.Multiline */
+	.cp { color: $text2; font-weight: bold; font-style: italic } /* Comment.Preproc */
+	.c1 { color: $text2; font-style: italic } /* Comment.Single */
+	.cs { color: $text2; font-weight: bold; font-style: italic } /* Comment.Special */
+	.gd { color: $background; background-color: $tertiary3 } /* Generic.Deleted */
+	.ge { color: $text1; font-style: italic } /* Generic.Emph */
+	.gr { color: $tertiary3 } /* Generic.Error */
+	.gh { color: $text1 } /* Generic.Heading */
+	.gi { color: $text1; background-color: $highlight } /* Generic.Inserted */
+	.go { color: $primary2 } /* Generic.Output */
+	.gp { color: $text2 } /* Generic.Prompt */
+	.gs { font-weight: bold } /* Generic.Strong */
+	.gu { color: $text1 } /* Generic.Subheading */
+	.gt { color: $primary1 } /* Generic.Traceback */
+	.kc { color: $primary2 } /* Keyword.Constant */
+	.kd { color: $primary2 } /* Keyword.Declaration */
+	.kn { color: $primary2 } /* Keyword.Namespace */
+	.kp { color: $primary2 } /* Keyword.Pseudo */
+	.kr { color: $primary2 } /* Keyword.Reserved */
+	.kt { color: $tertiary2 } /* Keyword.Type */
+	.m { color: $primary3 } /* Literal.Number */
+	.s { color: $secondary1 } /* Literal.String */
+	.na { color: $primary2 } /* Name.Attribute */
+	.nb { color: $primary2 } /* Name.Builtin */
+	.nc { color: $primary2 } /* Name.Class */
+	.no { color: $primary2 } /* Name.Constant */
+	.nd { color: $secondary2 } /* Name.Decorator */
+	.ni { color: $secondary2 } /* Name.Entity */
+	.ne { color: $secondary2; font-weight: bold } /* Name.Exception */
+	.nf { color: $primary1; font-weight: bold } /* Name.Function */
+	.nl { color: $text1 } /* Name.Label */
+	.nn { color: $text1 } /* Name.Namespace */
+	.nt { color: $primary1 } /* Name.Tag */
+	.nv { color: $primary3 } /* Name.Variable */
+	.ow { color: $text1; font-weight: bold } /* Operator.Word */
+	.w { color: $text1 } /* Text.Whitespace */
+	.mf { color: $primary3 } /* Literal.Number.Float */
+	.mh { color: $primary3 } /* Literal.Number.Hex */
+	.mi { color: $primary3 } /* Literal.Number.Integer */
+	.mo { color: $primary3 } /* Literal.Number.Oct */
+	.sb { color: $secondary1 } /* Literal.String.Backtick */
+	.sc { color: $secondary1 } /* Literal.String.Char */
+	.sd { color: $secondary1 } /* Literal.String.Doc */
+	.s2 { color: $secondary1 } /* Literal.String.Double */
+	.se { color: $tertiary1 } /* Literal.String.Escape */
+	.sh { color: $tertiary1 } /* Literal.String.Heredoc */
+	.si { color: $tertiary1 } /* Literal.String.Interpol */
+	.sx { color: $tertiary2 } /* Literal.String.Other */
+	.sr { color: $tertiary1 } /* Literal.String.Regex */
+	.s1 { color: $secondary1 } /* Literal.String.Single */
+	.ss { color: $secondary1 } /* Literal.String.Symbol */
+	.bp { color: $secondary2 } /* Name.Builtin.Pseudo */
+	.vc { color: $primary1 } /* Name.Variable.Class */
+	.vg { color: $primary1 } /* Name.Variable.Global */
+	.vi { color: $primary1 } /* Name.Variable.Instance */
+	.il { color: $primary3 } /* Literal.Number.Integer.Long */
+}

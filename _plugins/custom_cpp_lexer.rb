@@ -23,7 +23,10 @@ module Rouge
         rule %r/\b(Float|Double)\b/, Keyword::Type
         rule %r/\b(float2|float3|float4)\b/, Keyword::Type
         rule %r/\b(vec2|vec3|vec4)\b/, Keyword::Type
-        rule %r/[A-Z][a-zA-Z0-9_]*/, Name::Class # Starts with majuscule and then contains alpha numeric values
+        #rule %r/[A-Z][a-zA-Z0-9_]*/, Name::Class # Starts with majuscule and then contains alpha numeric values
+        rule %r/\b(Flags|Flag|Span|T|Node)\b/, Name::Class
+        rule %r/\b(MemoryArenaFlagsDef|MemoryArenaFlag|MemoryArenaFlags|MemoryArena|FixedMemoryArena|VirtualMemoryArena|ScopedMemoryArena|MemoryArenaVector)\b/, Name::Class
+        rule %r/\b(init|allocate|beg|end|ptr|rewind|reset|free|growable)\b/, Name::Function
         rule %r/\b(printf|push_back|pop_back)\b/, Name::Function
       end
 
@@ -33,7 +36,10 @@ module Rouge
         rule %r/\b(Float|Double)\b/, Keyword::Type
         rule %r/\b(float2|float3|float4)\b/, Keyword::Type
         rule %r/\b(vec2|vec3|vec4)\b/, Keyword::Type
-        rule %r/[A-Z][a-zA-Z0-9_]*/, Name::Class # Starts with majuscule and then contains alpha numeric values
+        #rule %r/[A-Z][a-zA-Z0-9_]*/, Name::Class # Starts with majuscule and then contains alpha numeric values
+        rule %r/\b(Flags|Flag|Span|T|Node)\b/, Name::Class
+        rule %r/\b(MemoryArenaFlagsDef|MemoryArenaFlag|MemoryArenaFlags|MemoryArena|FixedMemoryArena|VirtualMemoryArena|ScopedMemoryArena|MemoryArenaVector)\b/, Name::Class
+        rule %r/\b(init|allocate|beg|end|ptr|rewind|reset|free|growable)\b/, Name::Function
         rule %r/\b(printf|push_back|pop_back)\b/, Name::Function
       end
     end
