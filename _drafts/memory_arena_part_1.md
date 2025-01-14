@@ -1,12 +1,15 @@
 ---
-title: "Memory Arena"
+title: "Memory Arena - Part 1"
 tag:
   - code
   - c++
   - memory arena
 assets_path: /assets/drafts/memory_arena_part_1
 mermaid: true
+comments: true
 ---
+
+<script src="{{ '/assets/js/no_scroll_on_expand.js' | relative_url }}"></script>
 
 ## Introduction
 
@@ -37,21 +40,19 @@ I think it is important to differentiate the **memory arena** from the **allocat
 
 This separation is here to keep arena interface simple and also to be able to handle **sub-lifetimes** and **transient** memory more efficiently (more on that later).
 
-I also enforce the fact that the memory arena must provide a **contiguous** memory range. That helps to keep the interface quite "minimalist".
-
 
 ### Memory arena types
 
 At first I tried to find some key properties to help me classify memory arena types.
 I came up with 4 base types:
-  * `FixedMemoryArena`: which represents a **fixed-size** **contiguous** and **stable** memory range
-  * `DynamicMemoryArena`: which represents a **growable** **contiguous** but (potentially) **unstable** memory range
+  * `FixedMemoryArena`: which represents a **fixed-size**, **contiguous** and **stable** memory range
+  * `DynamicMemoryArena`: which represents a **growable**, **contiguous** but (potentially) **unstable** memory range
   * `BlockMemoryArena`: which represents a **growable** set of **contiguous** and **stable** memory range**s**
-  * `VirtualMemoryArena`: which represents a **growable**[^fn-vmem_growable] **contiguous** and **stable** memory range
+  * `VirtualMemoryArena`: which represents a **growable**[^fn-vmem_growable], **contiguous** and **stable** memory range
 
   [^fn-vmem_growable]: within a predefined limit (the reserve)
 
-With 3 key properties: **contiguous**, **growable** and **stable**:
+From which we can extract 3 key properties: **contiguous**, **growable** and **stable**:
 
 | Type               | Contiguous | Growable | Stable |
 | :----------------- | :--------: | :------: | :----: | 
@@ -60,7 +61,7 @@ With 3 key properties: **contiguous**, **growable** and **stable**:
 | BlockMemoryArena   | false      | true     | true   | 
 | VirtualMemoryArena | true       | true     | true   |
 
-However, having a memory arena with a non-stable memory range adds a lot of complexity on the user side because of invalidation of existing allocations upon growing. Moreover, allowing non-contiguous memory range also adds complexity on its own and makes it more difficult to compose with different allocation schemes.
+However, after some experimentations, I found out that having a memory arena with a non-stable memory range adds a lot of complexity on the user side because of invalidation of existing allocations upon growing. Moreover, allowing non-contiguous memory range also adds complexity on its own and makes it more difficult to compose with different allocation schemes.
 So I quickly dropped the unstable `DynamicMemoryArena` and the non-contiguous `BlockMemoryArena`.
 
 So in this end, I kept only 2 base memory arena types that are both **contiguous** and **stable**: the `FixedMemoryArena` and the `VirtualMemoryArena`; that only differ on their capacity to grow.
@@ -309,22 +310,24 @@ Thus we can easily allocate a few `VirtualMemoryArena` of several gigabytes if n
 One nice thing with virtual memory is that you can control page access and this can be used to provide a debug `VirtualMemoryArena` with
 some protections to detect **buffer overruns** and **incorrect usages of memory after a `rewind` or a `free`**.
 
+
+##### Buffer overrun detection
+
 To detect **buffer overruns**, we place each allocation in its own set of pages and add a **"no access" page** just after:
-<br/>The allocation is placed such that the end of the allocation range matches the end of a page (or is at least very close since it is not always possible exactly match page end due to alignment constraints).
+<br/>The allocation is placed such that the end of the allocation range matches the end of a page (or is at least very close; since it is not always possible to exactly match a page end due to alignment constraints).
 <br/>Then whenever the memory after the allocation is accessed (buffer overrun), it goes through the "no access" page we added; triggering an **access violation**.
 
 **Write access violation example**:
 ![virtual_memory_arena_write_access_violation]({{ page.assets_path }}/virtual_memory_arena_write_access_violation.png)
 
-**Read access violation example**:
-![virtual_memory_arena_read_access_violation]({{ page.assets_path }}/virtual_memory_arena_read_access_violation.png)
-
-The memory looks something like that (assuming 4k pages):
+The memory looks something like that (with addresses increasing from left to right, top to bottom, assuming 4k pages):
 ```mermaid
 block-beta
   columns 4
-  A["Unused (4092 bytes)"]:3 B["i (4 bytes)"]:1 C["'No access' page (4096 bytes)"]:4
-  D["Unused (4088 bytes)"]:2 E["j[0] (4 bytes)"]:1 F["j[1] (4 bytes)"]:1 G["'No access' page (4096 bytes)"]:4
+  A["Unused (4092 bytes)"]:3 B["i (4 bytes)"]:1
+  C["'No access' page (4096 bytes)"]:4
+  D["Unused (4088 bytes)"]:2 E["j[0] (4 bytes)"]:1 F["j[1] (4 bytes)"]:1
+  G["'No access' page (4096 bytes)"]:4
   style A fill:#777
   style B fill:#179
   style C fill:#811
@@ -333,11 +336,22 @@ block-beta
   style F fill:#179
   style G fill:#811
 ```
+
 So when we try to access `i+1` we end up in a protected "no access" page.
 
+<br/>
 > While this approach is simple it wastes a lot of memory for small allocations since there are done at the page size granularity (usually 4096 bytes)!
 {: .prompt-warning }
 
+<br/>
+**Read access violation example**:
+![virtual_memory_arena_read_access_violation]({{ page.assets_path }}/virtual_memory_arena_read_access_violation.png)
+
+
+
+
+<br/>
+##### Use-after-rewind/reset detection
 
 To detect the **use-after-rewind/reset** cases, once `rewind` or `reset` (which is equivalent to rewinding to the beginning of the arena) are called, the pages from the one containing the rewind mark to the end of the arena are marked as "no access".
 
@@ -348,12 +362,6 @@ To detect the **use-after-rewind/reset** cases, once `rewind` or `reset` (which 
 ![virtual_memory_arena_reset_write_access_violation]({{ page.assets_path }}/virtual_memory_arena_reset_write_access_violation.png)
 
 Below you can find most the code of the `VirtualMemoryArena` (Windows only):
-
-> TODO(click to expand -> scroll to end of page...)
-{: .prompt-danger }
-
-> TODO(code block indentation is too big)
-{: .prompt-danger }
 
 <details>
 	<summary>Click to expand</summary>
@@ -792,7 +800,7 @@ class VirtualMemoryArena : public MemoryArena
 
 ### NullMemoryArena
 
-The `NullMemoryArena` class represents "null" memory arena that always return nullptr.
+The `NullMemoryArena` class represents "null" memory arena that always return nullptr. It can be used to test "fail to allocate" cases.
 
 ```cpp
 class NullMemoryArena : public MemoryArena
@@ -807,20 +815,9 @@ class NullMemoryArena : public MemoryArena
 			return nullptr;
 		}
 
-		void * beg() const override
-		{
-			return nullptr;
-		}
-
-		void * ptr() const override
-		{
-			return nullptr;
-		}
-
-		void * end() const override
-		{
-			return nullptr;
-		}
+		void * beg() const override { return nullptr; }
+		void * ptr() const override { return nullptr; }
+		void * end() const override { return nullptr; }
 
 		bool rewind(void * mark) override
 		{
@@ -828,9 +825,72 @@ class NullMemoryArena : public MemoryArena
 			return false;
 		}
 
-		void reset() override
+		void reset() override { }
+		void free() override { }
+
+		bool growable() const override { return false; }
+};
+```
+
+
+### ScopedMemoryArena
+
+Use RAII to automatically rewind a wrapped arena at the end of a scope.
+
+```cpp
+// Wrap a memory arena, store its current pointer on creation, and rewind to it on destruction
+class ScopedMemoryArena : public MemoryArena
+{
+	MemoryArena & m_arena;
+	void * m_mark;
+
+	public:
+		ScopedMemoryArena(MemoryArena & arena):
+			m_arena(arena),
+			m_mark(arena.ptr())
 		{
 
+		}
+
+		~ScopedMemoryArena()
+		{
+			if(m_mark)
+				m_arena.rewind(m_mark);
+		}
+
+		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlags flags = MemoryArenaFlag::NONE) override
+		{
+			return m_arena.allocate(byteSize, alignment, flags);
+		}
+
+		void * beg() const override
+		{
+			return m_mark;
+		}
+
+		void * ptr() const override
+		{
+			return m_arena.ptr();
+		}
+
+		void * end() const override
+		{
+			return m_arena.end();
+		}
+
+		bool rewind(void * mark) override
+		{
+			if(K_ASSERT_CONDITION(mark >= m_mark && mark <= m_arena.ptr()))
+			{
+				m_arena.rewind(mark);
+				return true;
+			}
+			return false;
+		}
+
+		void reset() override
+		{
+			m_arena.rewind(m_mark);
 		}
 
 		void free() override
@@ -840,40 +900,40 @@ class NullMemoryArena : public MemoryArena
 
 		bool growable() const override
 		{
-			return false;
+			return m_arena.growable();
 		}
 };
 ```
 
-
-### ScopedMemoryArena
-
-Use RAII to automatically rewind the wrapped arena at the end of a scope.
+Usage example:
 
 ```cpp
-ScopedMemoryArena scopedMemoryArena{transientMemoryArena}; // Save current arena mark
-
-MemoryArenaVector<Node*> stack{scopedMemoryArena};
-stack.push_back(rootNode);
-Node * node = nullptr;
-while(stack.pop_back(node))
 {
-    if(node)
-    {
-        // ...
-        for(U64 i = 0; i < node->mNumChildren; ++i)
-          stack.push_back(node->mChildren[i]);
-    }
+	ScopedMemoryArena scopedMemoryArena{transientMemoryArena}; // Save current arena mark
+
+	MemoryArenaVector<Node*> stack{scopedMemoryArena};
+	Node * node = rootNode;
+	while(node)
+	{
+		// ...
+		for(int i = 0; i < node->numChildren; ++i)
+			stack.push_back(node->children[i]);
+		// ...
+		stack.pop_back(node);
+	}
+	// At the scope exit, the transientMemoryArena is rewound at the saved arena mark (beginning of the scope)
 }
-// At the scope exit, the transientMemoryArena is rewound at the saved arena mark (beginning of the scope)
 ```
 
-Another approach to provide temporary arena is to pass them by copy as is done
-<!-- markdownlint-capture -->
-<!-- markdownlint-disable -->
-> TODO(link to nullprogram)
+
+## Closing remarks
+
+> TODO(positive and negative)
 {: .prompt-danger }
-<!-- markdownlint-restore -->
+
+* make functions take the arena as param -> some form of documentation on which functions allocate
+* allocating for the arena itself is not as fast as bumping a pointer, however I would rely on a linear allocator on top of a preallocated memory chunk of the arena.
+<br/>I tend to preallocate the memory I need for a given processing task instead of allocating on the fly, especially in hot loops.
 
 
 ## References
