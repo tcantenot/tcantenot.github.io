@@ -1,15 +1,19 @@
 ---
-title: "Memory Arena - Part 1"
+title: "Memory Arena"
 tag:
   - code
   - c++
   - memory arena
-assets_path: /assets/drafts/memory_arena_part_1
+assets_path: /assets/drafts/memory_arena
 mermaid: true
 comments: true
 ---
 
 <script src="{{ '/assets/js/no_scroll_on_expand.js' | relative_url }}"></script>
+
+> FINISH CLOSING REMARKS
+{: .prompt-danger }
+
 
 ## Introduction
 
@@ -38,10 +42,10 @@ I think it is important to differentiate the **memory arena** from the **allocat
 <br/>The **memory arena** provides the **backing memory storage**, while the **allocation schemes** dictates **how** the memory is retrieved from (and eventually released to) the arena.
 <br/>Allocation schemes are handled by allocators layered on top of a arena. All kind of allocators can be implemented, just naming a few: linear, block, pool, tlsf, etc.
 
-This separation is here to keep arena interface simple and also to be able to handle **sub-lifetimes** and **transient** memory more efficiently (more on that later).
+This separation is here to keep the memory arena interface simple and to handle **sub-lifetimes** and **transient** memory more efficiently.
 
 
-### Memory arena types
+## Memory arena types
 
 At first I tried to find some key properties to help me classify memory arena types.
 I came up with 4 base types:
@@ -64,7 +68,7 @@ From which we can extract 3 key properties: **contiguous**, **growable** and **s
 However, after some experimentations, I found out that having a memory arena with a non-stable memory range adds a lot of complexity on the user side because of invalidation of existing allocations upon growing. Moreover, allowing non-contiguous memory range also adds complexity on its own and makes it more difficult to compose with different allocation schemes.
 So I quickly dropped the unstable `DynamicMemoryArena` and the non-contiguous `BlockMemoryArena`.
 
-So in this end, I kept only 2 base memory arena types that are both **contiguous** and **stable**: the `FixedMemoryArena` and the `VirtualMemoryArena`; that only differ on their capacity to grow.
+So in this end, I kept only **2 base memory arena types** that are both **contiguous** and **stable**: the `FixedMemoryArena` and the `VirtualMemoryArena`; that only differ on their capacity to grow.
 
 | Type               | Growable |
 | :----------------- | :------: | 
@@ -80,19 +84,13 @@ This resulted in the following interface:
 
 
 ```cpp
-struct MemoryArenaFlagsDef
+enum class MemoryArenaFlag : U32
 {
-	using Flags = U32;
-	enum Flag : Flags
-	{
-		NONE,
-		ZERO_MEMORY = 1u << 0,
-		NO_OVERFLOW = 1u << 1
-	};
+	NONE,
+	ZERO_MEMORY = 1u << 0,
+	NO_OVERFLOW = 1u << 1
 };
-
-using MemoryArenaFlag  = MemoryArenaFlagsDef::Flag;
-using MemoryArenaFlags = MemoryArenaFlagsDef::Flags;
+K_DECLARE_INLINE_ENUM_FLAG_OPERATORS(MemoryArenaFlag)
 
 class MemoryArena
 {
@@ -101,7 +99,7 @@ class MemoryArena
 		static constexpr ptrdiff_t DefaultAlignment = 16;
 
 	public:
-		virtual void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlags flags = MemoryArenaFlag::NONE) = 0;
+		virtual void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlag flags = MemoryArenaFlag::NONE) = 0;
 
 		virtual void * beg() const = 0;
 		virtual void * ptr() const = 0;
@@ -136,8 +134,17 @@ class MemoryArena
     // ...
 
 	template <typename T>
-	inline bool allocateElements(Span<T> & oSpan, ptrdiff_t numElements, MemoryArenaFlags flags = MemoryArenaFlag::NONE)
+	inline bool allocateElements(Span<T> & oSpan, ptrdiff_t numElements, MemoryArenaFlag flags = MemoryArenaFlag::NONE)
 	{
+		static_assert(
+			Traits::IsTriviallyConstructible<T>::Value || Traits::IsDefaultConstructible<T>::Value,
+			"T must be trivially or default constructible to be used with a MemoryArena"
+		);
+		static_assert(
+			Traits::IsTriviallyDestructible<T>::Value,
+			"T must be trivially destructible to be used with a MemoryArena"
+		);
+
 		if(void * ptr = allocate(numElements * sizeof(T), alignof(T), flags))
 		{
 			oSpan.data = static_cast<T*>(ptr);
@@ -155,7 +162,7 @@ class MemoryArena
 	}
 
 	template <typename T>
-	inline Span<T> allocateElements(ptrdiff_t numElements, MemoryArenaFlags flags = MemoryArenaFlag::NONE)
+	inline Span<T> allocateElements(ptrdiff_t numElements, MemoryArenaFlag flags = MemoryArenaFlag::NONE)
 	{
 		Span<T> span;
 		allocateElements(span, numElements, flags);
@@ -163,7 +170,7 @@ class MemoryArena
 	}
 
 	template <typename T>
-	inline bool allocateElements(T *& oPtr, ptrdiff_t numElements, MemoryArenaFlags flags = MemoryArenaFlag::NONE)
+	inline bool allocateElements(T *& oPtr, ptrdiff_t numElements, MemoryArenaFlag flags = MemoryArenaFlag::NONE)
 	{
 		Span<T> span;
 		if(allocateElements(span, numElements, flags))
@@ -175,7 +182,7 @@ class MemoryArena
 	}
 
 	template <typename T>
-	inline T * allocateElement(MemoryArenaFlags flags = MemoryArenaFlag::NONE)
+	inline T * allocateElement(MemoryArenaFlag flags = MemoryArenaFlag::NONE)
 	{
 		return allocateElements<T>(1, flags).data;
 	}
@@ -192,7 +199,7 @@ class MemoryArena
 };
 ```
 
-Some may argue that the interface I suggest is not really minimalist, and indeed there are examples in Ryan's or in Chris's blogs that are way more succinct.
+Some may argue that the interface I suggest is not really minimalist, and indeed there are examples in Chris's blogs that are way more succinct.
 <br/>However I feel struck a good balance between ease of usage and functionality, but YMMV.
 
 
@@ -221,7 +228,7 @@ class FixedMemoryArena : public MemoryArena
 			return false;
 		}
 
-		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlags flags = MemoryArenaFlag::NONE) override
+		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlag flags = MemoryArenaFlag::NONE) override
 		{
 			if(!m_beg)
 				return nullptr;
@@ -358,6 +365,10 @@ To detect the **use-after-rewind/reset** cases, once `rewind` or `reset` (which 
 **Invalid use-after-rewind example**:
 ![virtual_memory_arena_rewind_read_access_violation]({{ page.assets_path }}/virtual_memory_arena_rewind_read_access_violation.png)
 
+> Rewinding cannot happen at an arbitrary position within the allocation but is aligned to the *previous* multiple of page size (since protection happens a page-granularity)!
+{: .prompt-warning }
+
+<br/>
 **Invalid use-after-reset example**:
 ![virtual_memory_arena_reset_write_access_violation]({{ page.assets_path }}/virtual_memory_arena_reset_write_access_violation.png)
 
@@ -539,7 +550,7 @@ class VirtualMemoryArena : public MemoryArena
 		}
 
 		#if K_VIRTUAL_MEMORY_ARENA_DEBUG_PAGE_PROTECTION
-		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlags flags = MemoryArenaFlag::NONE) override
+		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlag flags = MemoryArenaFlag::NONE) override
 		{
 			if(!m_vmem.beg)
 				return nullptr;
@@ -615,7 +626,7 @@ class VirtualMemoryArena : public MemoryArena
 			return allocBeg;
 		}
 		#else
-		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlags flags = MemoryArenaFlag::NONE) override
+		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlag flags = MemoryArenaFlag::NONE) override
 		{
 			if(!m_vmem.beg)
 				return nullptr;
@@ -798,40 +809,6 @@ class VirtualMemoryArena : public MemoryArena
 
 </details>
 
-### NullMemoryArena
-
-The `NullMemoryArena` class represents "null" memory arena that always return nullptr. It can be used to test "fail to allocate" cases.
-
-```cpp
-class NullMemoryArena : public MemoryArena
-{
-	public:
-		static NullMemoryArena sDummy;
-
-	public:
-		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlags flags = MemoryArenaFlag::NONE) override
-		{
-			K_UNUSED(byteSize, alignment, flags);
-			return nullptr;
-		}
-
-		void * beg() const override { return nullptr; }
-		void * ptr() const override { return nullptr; }
-		void * end() const override { return nullptr; }
-
-		bool rewind(void * mark) override
-		{
-			K_UNUSED(mark);
-			return false;
-		}
-
-		void reset() override { }
-		void free() override { }
-
-		bool growable() const override { return false; }
-};
-```
-
 
 ### ScopedMemoryArena
 
@@ -858,7 +835,7 @@ class ScopedMemoryArena : public MemoryArena
 				m_arena.rewind(m_mark);
 		}
 
-		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlags flags = MemoryArenaFlag::NONE) override
+		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlag flags = MemoryArenaFlag::NONE) override
 		{
 			return m_arena.allocate(byteSize, alignment, flags);
 		}
@@ -913,27 +890,68 @@ Usage example:
 
 	MemoryArenaVector<Node*> stack{scopedMemoryArena};
 	Node * node = rootNode;
-	while(node)
+	do
 	{
 		// ...
 		for(int i = 0; i < node->numChildren; ++i)
 			stack.push_back(node->children[i]);
 		// ...
-		stack.pop_back(node);
-	}
+	} while(stack.pop_back(node));
 	// At the scope exit, the transientMemoryArena is rewound at the saved arena mark (beginning of the scope)
 }
 ```
 
 
+### NullMemoryArena
+
+The `NullMemoryArena` class represents "null" memory arena that always return nullptr. It can be used to test "fail to allocate" cases.
+
+```cpp
+class NullMemoryArena : public MemoryArena
+{
+	public:
+		static NullMemoryArena sDummy;
+
+	public:
+		void * allocate(ptrdiff_t byteSize, ptrdiff_t alignment = DefaultAlignment, MemoryArenaFlag flags = MemoryArenaFlag::NONE) override
+		{
+			K_UNUSED(byteSize, alignment, flags);
+			return nullptr;
+		}
+
+		void * beg() const override { return nullptr; }
+		void * ptr() const override { return nullptr; }
+		void * end() const override { return nullptr; }
+
+		bool rewind(void * mark) override
+		{
+			K_UNUSED(mark);
+			return false;
+		}
+
+		void reset() override { }
+		void free() override { }
+
+		bool growable() const override { return false; }
+};
+```
+
 ## Closing remarks
 
-> TODO(positive and negative)
-{: .prompt-danger }
+We can also easily add some other properties such that extra logging, thread-safety, etc. by deriving from one of the base arenas.
 
-* make functions take the arena as param -> some form of documentation on which functions allocate
-* allocating for the arena itself is not as fast as bumping a pointer, however I would rely on a linear allocator on top of a preallocated memory chunk of the arena.
+<br/>
+The transition to memory arena is not always as smooth as I envisioned, especially with third-party code but so far it has been liberating.
+
+One thing that I like is that now functions that allocate take a memory arena as param making it clear the codepaths that can perform allocation, and in which time scope (from the caller side).
+
+The `VirtualMemoryArena` is what I used the most, and its debug mode allows me to be more confident about the code changes I make.
+
+Allocating from the arena itself is not as fast as bumping a pointer, however I would rely on a linear allocator on top of a preallocated memory chunk of the arena if speed is a concern.
 <br/>I tend to preallocate the memory I need for a given processing task instead of allocating on the fly, especially in hot loops.
+
+I am also exploring various allocation strategies (~allocators) as well as data structures that rely on memory arenas. Maybe I'll talk about that in a future post...
+
 
 
 ## References
