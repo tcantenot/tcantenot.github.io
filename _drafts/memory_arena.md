@@ -14,7 +14,7 @@ comments: true
 ## Introduction
 
 I am currently in the process of converting my codebase to mostly use memory arenas for its allocations and will see where it leads me.
-<br/>This blog post is here to gather my thoughts and ideas I had along the way to serve as future reference for me; and hopefully be helpful to others!
+<br/>This first blog post is here to gather some thoughts and ideas I had along the way and to serve as future reference for myself; and hopefully be helpful to others!
 
 This blog [post](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator) by Ryan Fleury challenged a lot what I previously learned and quite deeply changed the way I see allocations in a program now.
 <br/>Allocations did matter to me before: I tried to hook every allocations in order to track leaks, to gather statistics and to reduce them as much as possible. I could also detect some used-after-free and some kinds of buffer overruns.
@@ -27,16 +27,17 @@ I will not repeat everything that Ryan explains thoroughly in his blog, so go re
 ### Some context
 The codebase I mentionned is my hobby pathtracer written in C++ and CUDA.
 <br/>I am trying to see how using C++ features could "ease" the usage of memory arenas and what obstacles I would meet along the way.
-<br/>I am not really a big fan of all of what "modern" C++ has to offer so I tend to cherry pick the new features when I find them worthwhile. I also avoid the STL and use the more performance-oriented [EASTL](https://github.com/electronicarts/EASTL) (even though I might phase it out at some point).
+<br/>I am not really a big fan of all of what "modern" C++ has to offer so I tend to cherry pick the new features when I find them worthwhile.
+<br/>I also avoid the STL and use the more performance-oriented [EASTL](https://github.com/electronicarts/EASTL) (even though I might phase it out at some point).
 
 
 ## Key concepts
 
-A memory arena holds **allocations** with the **same lifetime**. Once the end of the lifetime is reached, **all allocations** are released at **once**.
+A memory arena holds **allocations** with the **same lifetime**. Once the end of the lifetime is reached, **all allocations** within the arena are released at **once**.
 
 I think it is important to differentiate the **memory arena** from the **allocation schemes**.
-<br/>The **memory arena** provides the **backing memory storage**, while the **allocation schemes** dictates **how** the memory is retrieved from (and eventually released to) the arena.
-<br/>Allocation schemes are handled by allocators layered on top of a arena. All kind of allocators can be implemented, just naming a few: linear, block, pool, tlsf, etc.
+<br/>The **memory arena** provides the **backing memory storage** and represents the **overarching lifetime of a group of allocations**, while the **allocation schemes** dictates **how** the memory is retrieved from (and eventually released to) the arena.
+<br/>Allocation schemes are handled by allocators layered on top of a arena and allow to handle sub-lifetimes. All kind of allocators can be implemented, just naming a few: linear, block, pool, tlsf, etc.
 
 This separation is here to keep the memory arena interface simple and to handle **sub-lifetimes** and **transient** memory more efficiently.
 
@@ -112,13 +113,13 @@ class MemoryArena
 };
 ```
 
-* `allocate`: Allocate some number of bytes with the given alignment from the arena. Return nullptr on failure.
+* `allocate`: Allocate some number of bytes with the given alignment from the arena. Returns nullptr on failure.
 * `beg`: Return a pointer to the beginning of the arena address range.
 * `ptr`: Return a pointer to the current position within the arena address range.
 * `end`: Return a pointer to the end of the arena address range.
-* `rewind`: Try to rewind the arena current position to the given pointer.
-* `reset`: Reset the current position to the beginning of the arena.
-* `free`: Free the backing memory of the arena.
+* `rewind`: Try to rewind the arena current position to the given pointer (invalidating all previous allocations after the mark). Returns true on success.
+* `reset`: Reset the current position to the beginning of the arena (invalidating all previous allocations).
+* `free`: Free the backing memory of the arena (invalidating all previous allocations).
 * `growable`: Tells whether the arena backing memory range can grow (while staying contiguous and stable).
 
 
@@ -201,7 +202,7 @@ Some may argue that the interface I suggest is not really minimalist, and indeed
 
 ### FixedMemoryArena
 
-The `FixedMemoryArena` class represents non-growable memory arena.
+The `FixedMemoryArena` class represents a non-growable memory arena.
 
 ```cpp
 class FixedMemoryArena : public MemoryArena
@@ -311,7 +312,7 @@ Thus we can easily allocate a few `VirtualMemoryArena` of several gigabytes if n
 #### Page-protected VirtualMemoryArena
 
 One nice thing with virtual memory is that you can control page access and this can be used to provide a debug `VirtualMemoryArena` with
-some protections to detect **buffer overruns** and **incorrect usages of memory after a `rewind` or a `free`**.
+some protections to detect **buffer overruns** and **incorrect usages of memory after a `rewind` or a `reset`**.
 
 
 ##### Buffer overrun detection
@@ -353,8 +354,7 @@ block-beta
 
 So when we try to access `i+1` we end up in a protected "no access" page.
 
-<br/>
-> While this approach is simple it wastes a lot of memory for small allocations since there are done at the page size granularity (usually 4096 bytes)!
+> While this approach is simple it wastes a lot of memory, especially for small allocations since there are done at the page size granularity (usually 4096 bytes)!
 {: .prompt-warning }
 
 <br/>
@@ -418,6 +418,7 @@ uintptr_t GetVirtualMemoryAllocationGranularity()
 	return systemInfo.dwAllocationGranularity;
 	#else
 	static_assert(false, "GetVirtualMemoryAllocationGranularity: not implemented");
+	return 0;
 	#endif
 }
 
@@ -430,9 +431,11 @@ uintptr_t GetVirtualMemoryCommitGranularity()
 	return systemInfo.dwPageSize;
 	#else
 	static_assert(false, "GetVirtualMemoryCommitGranularity: not implemented");
+	return 0;
 	#endif
 }
 
+// Get the virtual memory page size
 uintptr_t GetVirtualMemoryPageSize()
 {
 	#ifdef K_PLATFORM_WINDOWS
@@ -441,6 +444,7 @@ uintptr_t GetVirtualMemoryPageSize()
 	return systemInfo.dwPageSize;
 	#else
 	static_assert(false, "GetVirtualMemoryPageSize: not implemented");
+	return 0;
 	#endif
 }
 
@@ -460,6 +464,7 @@ VirtualMemoryBlock VirtualMemoryReserve(ptrdiff_t byteSize, uintptr_t allocation
 	return block;
 	#else
 	static_assert(false, "VirtualMemoryReserve: not implemented");
+	return { nullptr, nullptr };
 	#endif
 }
 
@@ -480,23 +485,48 @@ VirtualMemoryBlock VirtualMemoryCommit(VirtualMemoryBlock const & block, uintptr
 	return { nullptr, nullptr };
 	#else
 	static_assert(false, "VirtualMemoryCommit: not implemented");
+	return { nullptr, nullptr };
 	#endif
 }
 
+// Set read-write access to a virtual address range
 // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualprotect
 bool VirtualMemorySetReadWriteAccess(VirtualMemoryBlock const & block)
 {
+	#ifdef K_PLATFORM_WINDOWS
 	const ptrdiff_t size = PtrUtils::Diff(block.end, block.beg);
 	DWORD oldProtection = 0;
 	return VirtualProtect(block.beg, size, PAGE_READWRITE, &oldProtection);
+	#else
+	static_assert(false, "VirtualMemorySetReadWriteAccess: not implemented");
+	return false;
+	#endif
 }
 
+// Prevent access to a virtual address range
 // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualprotect
 bool VirtualMemorySetNoAccess(VirtualMemoryBlock const & block)
 {
+	#ifdef K_PLATFORM_WINDOWS
 	const ptrdiff_t size = PtrUtils::Diff(block.end, block.beg);
 	DWORD oldProtection = 0;
 	return VirtualProtect(block.beg, size, PAGE_NOACCESS, &oldProtection);
+	#else
+	static_assert(false, "VirtualMemorySetNoAccess: not implemented");
+	return false;
+	#endif
+}
+
+
+// Free a reserved virtual memory range
+bool VirtualMemoryFree(VirtualMemoryBlock const & block)
+{
+	#ifdef K_PLATFORM_WINDOWS
+	return VirtualFree(block.beg, 0, MEM_RELEASE);
+	#else
+	static_assert(false, "VirtualMemoryFree: not implemented");
+	return false;
+	#endif
 }
 
 class VirtualMemoryArena : public MemoryArena
@@ -819,7 +849,7 @@ class VirtualMemoryArena : public MemoryArena
 
 ### ScopedMemoryArena
 
-Use RAII to automatically rewind a wrapped arena at the end of a scope.
+Use RAII to automatically rewind a wrapped arena at the end of a scope. I usally use this for scoped transient memory allocations.
 
 ```cpp
 // Wrap a memory arena, store its current pointer on creation, and rewind to it on destruction
@@ -951,7 +981,7 @@ Performance-wise, allocating from the arena itself is not as fast as bumping a p
 I tend to preallocate the memory I need for a given processing task instead of allocating on the fly, especially in hot loops, thus it has not been an issue so far.
 
 I am also exploring various allocation strategies (~allocators) as well as data structures that rely on memory arenas and also how to interface them with (EA)STL containers and third-party code.
-That might be the subject of a future post...
+But this might be the subject of a future post...
 
 Thanks for reading!
 
