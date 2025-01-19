@@ -1,10 +1,11 @@
 ---
 title: "Memory Arena"
+date: 2025-01-19 19:00:00 +0100
 tag:
   - code
   - c++
   - memory arena
-assets_path: /assets/drafts/memory_arena
+assets_path: /assets/posts/memory_arena
 mermaid: true
 comments: true
 ---
