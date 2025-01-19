@@ -12,10 +12,10 @@ comments: true
 
 <script src="{{ '/assets/js/no_scroll_on_expand.js' | relative_url }}"></script>
 
-## Introduction
-
 I am currently in the process of converting my codebase to mostly use memory arenas for its allocations and will see where it leads me.
 <br/>This first blog post is here to gather some thoughts and ideas I had along the way and to serve as future reference for myself; and hopefully be helpful to others!
+
+## Introduction
 
 This blog [post](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator) by Ryan Fleury challenged a lot what I previously learned and quite deeply changed the way I see allocations in a program now.
 <br/>Allocations did matter to me before: I tried to hook every allocations in order to track leaks, to gather statistics and to reduce them as much as possible. I could also detect some used-after-free and some kinds of buffer overruns.
