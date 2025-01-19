@@ -11,10 +11,6 @@ comments: true
 
 <script src="{{ '/assets/js/no_scroll_on_expand.js' | relative_url }}"></script>
 
-> FINISH CLOSING REMARKS
-{: .prompt-danger }
-
-
 ## Introduction
 
 I am currently in the process of converting my codebase to mostly use memory arenas for its allocations and will see where it leads me.
@@ -30,7 +26,7 @@ I will not repeat everything that Ryan explains thoroughly in his blog, so go re
 
 ### Some context
 The codebase I mentionned is my hobby pathtracer written in C++ and CUDA.
-<br/>I am trying to see how using C++ features could "ease" the memory usages of memory arena and what obstacles I would meet along the way.
+<br/>I am trying to see how using C++ features could "ease" the usage of memory arenas and what obstacles I would meet along the way.
 <br/>I am not really a big fan of all of what "modern" C++ has to offer so I tend to cherry pick the new features when I find them worthwhile. I also avoid the STL and use the more performance-oriented [EASTL](https://github.com/electronicarts/EASTL) (even though I might phase it out at some point).
 
 
@@ -199,7 +195,7 @@ class MemoryArena
 };
 ```
 
-Some may argue that the interface I suggest is not really minimalist, and indeed there are examples in Chris's blogs that are way more succinct.
+Some may argue that the interface I suggest is not really minimalist, and indeed there are examples in Chris' [blogs](https://nullprogram.com/blog/2023/09/27/) that are way more succinct.
 <br/>However I feel struck a good balance between ease of usage and functionality, but YMMV.
 
 
@@ -241,7 +237,7 @@ class FixedMemoryArena : public MemoryArena
 
 			if(allocEnd <= m_end)
 			{
-				m_ptr = allocBeg;
+				m_ptr = allocEnd;
 				if(flags & MemoryArenaFlag::ZERO_MEMORY)
 					Memset(allocBeg, 0, byteSize);
 				return allocBeg;
@@ -308,7 +304,7 @@ The `VirtualMemoryArena` class represents growable memory arena backed with virt
 
 > On 64-bit 80x86 CPUs a virtual address in 64 bits, with only the lowest 48 bits supported by the MMU, resulting in a effective address space of 256TiB[^fn-vmem_address_space].
 
-[^fn-vmem_address_space]: https://stackoverflow.com/questions/72411992/whats-the-maximum-size-of-virtual-memory
+[^fn-vmem_address_space]: <https://stackoverflow.com/questions/72411992/whats-the-maximum-size-of-virtual-memory>
 
 Thus we can easily allocate a few `VirtualMemoryArena` of several gigabytes if needed.
 
@@ -329,6 +325,16 @@ To detect **buffer overruns**, we place each allocation in its own set of pages 
 
 The memory looks something like that (with addresses increasing from left to right, top to bottom, assuming 4k pages):
 ```mermaid
+%%{
+  init: {
+    'theme': 'base',
+    'themeVariables': {
+
+      'darkMode': 'true'
+    }
+  }
+}%%
+
 block-beta
   columns 4
   A["Unused (4092 bytes)"]:3 B["i (4 bytes)"]:1
@@ -343,6 +349,7 @@ block-beta
   style F fill:#179
   style G fill:#811
 ```
+
 
 So when we try to access `i+1` we end up in a protected "no access" page.
 
@@ -365,7 +372,7 @@ To detect the **use-after-rewind/reset** cases, once `rewind` or `reset` (which 
 **Invalid use-after-rewind example**:
 ![virtual_memory_arena_rewind_read_access_violation]({{ page.assets_path }}/virtual_memory_arena_rewind_read_access_violation.png)
 
-> Rewinding cannot happen at an arbitrary position within the allocation but is aligned to the *previous* multiple of page size (since protection happens a page-granularity)!
+> Rewinding cannot happen at an arbitrary position within the allocation but is aligned to the *previous* multiple of page size (since protection happens at page-granularity)!
 {: .prompt-warning }
 
 <br/>
@@ -669,7 +676,7 @@ class VirtualMemoryArena : public MemoryArena
 				);
 			}
 
-			m_ptr = PtrUtils::Add(allocBeg, byteSize);
+			m_ptr = allocEnd;
 
 			K_VIRTUAL_MEMORY_ARENA_DEBUG_LOG("VMem: '%s' - allocate [0x%p, 0x%p] - %s (current: %s | total: %s)",
 				m_name,
@@ -904,7 +911,7 @@ Usage example:
 
 ### NullMemoryArena
 
-The `NullMemoryArena` class represents "null" memory arena that always return nullptr. It can be used to test "fail to allocate" cases.
+The `NullMemoryArena` class represents "null" memory arena that always return nullptr. It can be used to test "fail to allocate" cases and as a default for containers for example.
 
 ```cpp
 class NullMemoryArena : public MemoryArena
@@ -923,12 +930,7 @@ class NullMemoryArena : public MemoryArena
 		void * ptr() const override { return nullptr; }
 		void * end() const override { return nullptr; }
 
-		bool rewind(void * mark) override
-		{
-			K_UNUSED(mark);
-			return false;
-		}
-
+		bool rewind(void * mark) override { K_UNUSED(mark); return false; }
 		void reset() override { }
 		void free() override { }
 
@@ -940,25 +942,24 @@ class NullMemoryArena : public MemoryArena
 
 We can also easily add some other properties such that extra logging, thread-safety, etc. by deriving from one of the base arenas.
 
-<br/>
-The transition to memory arena is not always as smooth as I envisioned, especially with third-party code but so far it has been liberating.
-
-One thing that I like is that now functions that allocate take a memory arena as param making it clear the codepaths that can perform allocation, and in which time scope (from the caller side).
+The transition to memory arena is not always as smooth as I envisioned, especially with third-party code but so far it has been liberating:
+I have way less lifetimes to handle and think about, tearing down a system is easier, functions that allocate take a memory arena as param making it clear the codepaths that can perform allocation and within which time scope.
 
 The `VirtualMemoryArena` is what I used the most, and its debug mode allows me to be more confident about the code changes I make.
 
-Allocating from the arena itself is not as fast as bumping a pointer, however I would rely on a linear allocator on top of a preallocated memory chunk of the arena if speed is a concern.
-<br/>I tend to preallocate the memory I need for a given processing task instead of allocating on the fly, especially in hot loops.
+Performance-wise, allocating from the arena itself is not as fast as bumping a pointer, however I would rely on a linear allocator on top of a preallocated memory chunk of the arena if speed is a concern.
+I tend to preallocate the memory I need for a given processing task instead of allocating on the fly, especially in hot loops, thus it has not been an issue so far.
 
-I am also exploring various allocation strategies (~allocators) as well as data structures that rely on memory arenas. Maybe I'll talk about that in a future post...
+I am also exploring various allocation strategies (~allocators) as well as data structures that rely on memory arenas and also how to interface them with (EA)STL containers and third-party code.
+That might be the subject of a future post...
 
-
+Thanks for reading!
 
 ## References
 
-* **Untangling Lifetimes: The Arena Allocator**: https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator
-* **Arena allocator tips and tricks**: https://nullprogram.com/blog/2023/09/27/
-* **An easy-to-implement, arena-friendly hash map**: https://nullprogram.com/blog/2023/09/30/
-* **A simple, arena-backed, generic dynamic array for C**: https://nullprogram.com/blog/2023/10/05/
+* **Untangling Lifetimes: The Arena Allocator**: <https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator>
+* **Arena allocator tips and tricks**: <https://nullprogram.com/blog/2023/09/27/>
+* **An easy-to-implement, arena-friendly hash map**: <https://nullprogram.com/blog/2023/09/30/>
+* **A simple, arena-backed, generic dynamic array for C**: <https://nullprogram.com/blog/2023/10/05/>
 
 ## Footnotes
