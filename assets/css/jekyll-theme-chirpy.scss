@@ -413,6 +413,11 @@ details summary {
   font-weight: bold;
 }
 
+// Increase font size
+//.content {
+//  font-size: 21px;//16px;
+//}
+
 
 /*
 *  Name: Gaia (dark variant)
@@ -498,6 +503,93 @@ $secondary2: #ccb45d;
 $tertiary1: #ca6e6a;
 $tertiary2: #aa85cb;
 $tertiary3: #cb7e9a;
+
+
+/*
+*  Name: Orionis (dark variant)
+*  Author: Protesilaos Stavrou <public@protesilaos.com>
+*  Description: Tested with Rouge-enabled Jekyll sites
+*  Theme URL: https://protesilaos.com/orionis
+*/
+
+/*
+// Variables ----------------------------
+$dbg: #1F2A2D00; // Dark background
+$dhl: #2F3A3D; // Dark highlight
+$dt2: #5F6A6D; // Dark bg text secondary
+$dt1: #8F9A9D; // Dark bg text primary
+$lbg: #EFF1F3; // Light background
+$lhl: #DFE1E3; // Light highlight
+$lt2: #8F9193; // Light bg text secondary
+$lt1: #5F6163; // Light bg text primary
+$red: #974F6C; // Red
+$ora: #9D7427; // Orange
+$yel: #9A8F0C; // Yellow
+$gre: #5B935B; // Green
+$cya: #52A6AD; // Cyan
+$blu: #4D8AB3; // Blue
+$vio: #7E7EAD; // Violet
+$mag: #AD6E8F; // Magenta
+
+// Base Defaults ------------------------
+$text1: $dt1;
+$text2: $dt2;
+$background: $dbg;
+$highlight: $dhl;
+
+// Colour order
+$primary1: #AD6E8F;
+$primary2: #7E7EAD;
+$primary3: #4D8AB3;
+$secondary1: #52A6AD;
+$secondary2: #5B935B;
+$tertiary1: #974F6C;
+$tertiary2: #9D7427;
+$tertiary3: #9A8F0C;
+*/
+
+/*
+*  Name: Sonho (dark variant)
+*  Author: Protesilaos Stavrou <public@protesilaos.com>
+*  Description: Tested with Rouge-enabled Jekyll sites
+*  Theme URL: https://protesilaos.com/sonho
+*/
+
+/*
+// Variables ----------------------------
+$dbg: #4a363800; // Dark background
+$dhl: #5a4648; // Dark highlight
+$dt2: #8a7668; // Dark bg text secondary
+$dt1: #99aabc; // Dark bg text primary
+$lbg: #fff0f2; // Light background
+$lhl: #efe0e2; // Light highlight
+$lt2: #8896bb; // Light bg text secondary
+$lt1: #677468; // Light bg text primary
+$red: #cd4679; // Red
+$ora: #d9766d; // Orange
+$yel: #d9a652; // Yellow
+$gre: #11bf8c; // Green
+$cya: #38A8b9; // Cyan
+$blu: #479cb5; // Blue
+$vio: #a77ccf; // Violet
+$mag: #dd619f; // Magenta
+
+// Base Defaults ------------------------
+$text1: $dt1;
+$text2: $dt2;
+$background: $dbg;
+$highlight: $dhl;
+
+// Colour order
+$primary1: #dd619f;
+$primary2: #38A8b9;
+$primary3: #d9a652;
+$secondary1: #d9766d;
+$secondary2: #a77ccf;
+$tertiary1: #479cb5;
+$tertiary2: #11bf8c;
+$tertiary3: #cd4679;
+*/
 
 // Syntax -------------------------------
 // NOTE Classes are prefixed with .highlight
