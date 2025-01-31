@@ -27,7 +27,7 @@ module Rouge
         rule %r/\b(Flags|Flag|Span|T|Node)\b/, Name::Class
         rule %r/\b(MemoryArenaFlag|MemoryArena|FixedMemoryArena|VirtualMemoryArena|ScopedMemoryArena|MemoryArenaVector)\b/, Name::Class
         rule %r/\b(init|allocate|beg|end|ptr|rewind|reset|free|growable)\b/, Name::Function
-        rule %r/\b(printf|push_back|pop_back)\b/, Name::Function
+        rule %r/\b(printf|push_back|pop_back|push_front|pop_front)\b/, Name::Function
       end
 
       prepend :statements do
@@ -40,7 +40,7 @@ module Rouge
         rule %r/\b(Flags|Flag|Span|T|Node)\b/, Name::Class
         rule %r/\b(MemoryArenaFlag|MemoryArena|FixedMemoryArena|VirtualMemoryArena|ScopedMemoryArena|MemoryArenaVector)\b/, Name::Class
         rule %r/\b(init|allocate|beg|end|ptr|rewind|reset|free|growable)\b/, Name::Function
-        rule %r/\b(printf|push_back|pop_back)\b/, Name::Function
+        rule %r/\b(printf|push_back|pop_back|push_front|pop_front)\b/, Name::Function
       end
     end
   end
