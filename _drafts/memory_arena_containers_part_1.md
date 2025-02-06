@@ -133,17 +133,39 @@ block:PtrArray
 	Ptr2["Ptr2"]
 end
 space
-space:3
-Array0["Array0"]
-Array1["Array1"]
-Array2["Array2"]
-Ptr0 --> Array0
-Ptr1 --> Array1
-Ptr2 --> Array2
+block:Array0_
+Slot00[" "]
+Slot01[" "]
+Slot02[" "]
+Slot03[" "]
+end
+block:Array1_
+Slot10[" "]
+Slot11[" "]
+Slot12[" "]
+Slot13[" "]
+end
+block:Array2_
+	Slot20[" "]
+	Slot21[" "]
+	Slot22[" "]
+	Slot23[" "]
+end
+Array0Label["Array0"]
+Array1Label["Array1"]
+Array2Label["Array2"]
+
+Ptr0 --> Slot00
+Ptr1 --> Slot10
+Ptr2 --> Slot20
+
+style Array0Label fill:#0000,stroke-width:0px
+style Array1Label fill:#0000,stroke-width:0px
+style Array2Label fill:#0000,stroke-width:0px
 ```
 
 When the `MemoryArenaDeque` needs to grow a new block is allocated and added to the list of blocks.
-Thus even if another allocation happened in the memory arena, it does not waste memory... Well this is not *exactly* true because the *array of pointers* needs to grow so is it reallocated and the old one is wasted.
+Thus even if another allocation happened in the memory arena, it does not waste memory... Well this is not *exactly* true because the *array of pointers* needs to grow so is it reallocated and the old one is lost.
 However, the waste should not be significant for "reasonnable" block size: I accept this extra memory as part of the `MemoryArenaDeque` memory footprint.
 
 ```mermaid
@@ -205,28 +227,28 @@ style FreeSpace fill:#186
 > TODO gist
 {: .prompt-danger }
 
-It can be used to implement a **stack**, a **queue**, a **growable pool of objects**, etc.
+It can be used to implement a **stack**, a **queue**, a **growable pool of objects**, a **resource handle manager** etc.
 
 ### Stack
 
 The `MemoryArenaDeque` can be used as a **stack** (*last in, first out*) by using either `push_back` + `pop_back` or `push_front` + `pop_front`:
 
 ```cpp
-deque.push_back(0); // { 0 }
-deque.push_back(1); // { 0, 1 }
-deque.push_back(2); // { 0, 1, 2 }
-deque.pop_back(x); // x = 2, { 0, 1 }
-deque.pop_back(x); // x = 1, { 0 } 
-deque.pop_back(x); // x = 0, { }
+deque.push_back(0); // array = [0]
+deque.push_back(1); // array = [0, 1]
+deque.push_back(2); // array = [0, 1, 2]
+deque.pop_back(x); // x = 2, array = [0, 1]
+deque.pop_back(x); // x = 1, array = [0] 
+deque.pop_back(x); // x = 0, array = []
 ```
 or
 ```cpp
-deque.push_front(0); // { 0 }
-deque.push_front(1); // { 1, 0 }
-deque.push_front(2); // { 2, 1, 0 }
-deque.pop_front(x); // x = 2, { 1, 0 }
-deque.pop_front(x); // x = 1, { 0 } 
-deque.pop_front(x); // x = 0, { }
+deque.push_front(0); // array = [0]
+deque.push_front(1); // array = [1, 0]
+deque.push_front(2); // array = [2, 1, 0]
+deque.pop_front(x); // x = 2, array = [1, 0]
+deque.pop_front(x); // x = 1, array = [0] 
+deque.pop_front(x); // x = 0, array = []
 ```
 
 > As a reminder: the `MemoryArenaDeque` does not release back memory to its backing arena.
@@ -238,26 +260,301 @@ deque.pop_front(x); // x = 0, { }
 The `MemoryArenaDeque` can be used as a **queue** (*first in, first out*) by using either `push_back` + `pop_front` or `push_front` + `pop_back`:
 
 ```cpp
-deque.push_back(0); // { 0 }
-deque.push_back(1); // { 0, 1 }
-deque.push_back(2); // { 0, 1, 2 }
-deque.pop_front(x); // x = 0, { 1, 2 }
-deque.pop_front(x); // x = 1, { 2 } 
-deque.pop_front(x); // x = 2, { }
+deque.push_back(0); // array = [0]
+deque.push_back(1); // array = [0, 1]
+deque.push_back(2); // array = [0, 1, 2]
+deque.pop_front(x); // x = 0, array = [1, 2]
+deque.pop_front(x); // x = 1, array = [2] 
+deque.pop_front(x); // x = 2, array = []
 ```
 or
 ```cpp
-deque.push_front(0); // { 0 }
-deque.push_front(1); // { 1, 0 }
-deque.push_front(2); // { 2, 1, 0 }
-deque.pop_back(x); // x = 0, { 2, 1 }
-deque.pop_back(x); // x = 1, { 0 } 
-deque.pop_back(x); // x = 2, { }
+deque.push_front(0); // array = [0]
+deque.push_front(1); // array = [1, 0]
+deque.push_front(2); // array = [2, 1, 0]
+deque.pop_back(x); // x = 0, array = [2, 1]
+deque.pop_back(x); // x = 1, array = [0] 
+deque.pop_back(x); // x = 2, array = []
 ```
+
+### MemoryArenaPool
+
+The `MemoryArenaPool` represents a **growable pool of objects** backed by a memory arena.
+
+Its relies on a `MemoryArenaDeque` with occupancy bitmasks to tracks valid/free entries.
+
+```cpp
+const U64 MemoryArenaPoolInvalidIndex = ~0ull;
+
+template <typename T, U64 Granularity = 1024>
+class MemoryArenaPool
+{
+	static constexpr U64 ChunkSize = 64 * 8; // 512
+	static_assert(Granularity % ChunkSize == 0);
+
+	struct Chunk
+	{
+		T items[ChunkSize]; // Note: multiple of 64 bytes (= multiple of cache line size)
+		U64 occupancy[8];   // Note: size = 64 bytes = 1 cache line
+	};
+
+	MemoryArenaDeque<Chunk, Granularity/ChunkSize> m_chunks;
+	U64 m_size;
+
+	public:
+		MemoryArenaPool():
+			m_chunks(),
+			m_size(0)
+		{
+
+		}
+
+		explicit MemoryArenaPool(MemoryArena & arena):
+			m_chunks(arena),
+			m_size(0)
+		{
+
+		}
+
+		MemoryArenaPool(MemoryArenaPool const & other) = delete;
+
+		MemoryArenaPool(MemoryArenaPool && other):
+			m_chunks(K_MOVE(other.m_chunks)),
+			m_size(other.m_size)
+		{
+			other.m_size = 0;
+		}
+
+		MemoryArenaPool & operator=(MemoryArenaPool const & other) = delete;
+
+		MemoryArenaPool & operator=(MemoryArenaPool && other)
+		{
+			swap(other);
+			return *this;
+		}
+
+		~MemoryArenaPool() = default;
+
+		template <typename ...Args>
+		U64 emplace(Args && ...args)
+		{
+			U64 idx = 0;
+			for(U64 chunkIdx = 0; chunkIdx < m_chunks.size(); ++chunkIdx)
+			{
+				Chunk & chunk = m_chunks[chunkIdx];
+				for(U64 subChunkIdx = 0; subChunkIdx < 8; ++subChunkIdx)
+				{
+					if(chunk.occupancy[subChunkIdx] != ~0ull) // If not full
+					{
+						const U64 bitIdx = BitScanLSB(~chunk.occupancy[subChunkIdx]);
+						new(&chunk.items[subChunkIdx * 64 + bitIdx]) T{K_FWD(args)...};
+						chunk.occupancy[subChunkIdx] |= (1ull << bitIdx);
+						idx += bitIdx;
+						m_size += 1;
+						return idx;
+					}
+					idx += 64;
+				}
+			}
+
+			// Note: the MemoryArenaDeque entries are zero-initialized
+			if(!m_chunks.emplace_back())
+			{
+				return MemoryArenaPoolInvalidIndex;
+			}
+
+			Chunk & chunk = m_chunks[m_chunks.size()-1];
+			new(&chunk.items[0]) T{K_FWD(args)...};
+			chunk.occupancy[0] |= (1ull << 0);
+			m_size += 1;
+
+			return m_size-1;
+		}
+
+		U64 push(T const & x)
+		{
+			return emplace(x);
+		}
+
+		U64 push(T && x)
+		{
+			return emplace(K_MOVE(x));
+		}
+
+		bool remove(U64 idx)
+		{
+			const U64 chunkIdx = idx / ChunkSize;
+			if(chunkIdx < m_chunks.size())
+			{
+				const U64 itemIdxInChunk = idx % ChunkSize;
+				const U64 subChunkIdx = itemIdxInChunk >> 6; // itemIdxInChunk / 64;
+				const U64 bitIdx      = itemIdxInChunk & 63; // itemIdxInChunk % 64;
+
+				Chunk & chunk = m_chunks[chunkIdx];
+				if(chunk.occupancy[subChunkIdx] & (1ull << bitIdx))
+				{
+					chunk.occupancy[subChunkIdx] &= ~(1ull << bitIdx);  // Clear occupancy bit
+					Memset(&chunk.items[itemIdxInChunk], 0, sizeof(T)); // Clear item to 0 to ensure consistent serialization
+					m_size -= 1;
+					return true;
+				}
+			}
+			return false;
+		}
+
+		void clear()
+		{
+			for(U64 chunkIdx = 0; chunkIdx < m_chunks.size(); ++chunkIdx)
+			{
+				Chunk & chunk = m_chunks[chunkIdx];
+				for(U64 subChunkIdx = 0; subChunkIdx < 8; ++subChunkIdx)
+				{
+					if(chunk.occupancy[subChunkIdx] != 0)
+					{
+						Memset(chunk.items, 0, sizeof(chunk.items));
+						chunk.occupancy[subChunkIdx] = 0;
+					}
+				}
+			}
+			m_size = 0;
+		}
+
+		bool valid(U64 idx) const
+		{
+			const U64 chunkIdx = idx / ChunkSize;
+			if(chunkIdx < m_chunks.size())
+			{
+				const U64 itemIdxInChunk = idx % ChunkSize;
+				const U64 subChunkIdx = itemIdxInChunk >> 6; // itemIdxInChunk / 64;
+				const U64 bitIdx      = itemIdxInChunk & 63; // itemIdxInChunk % 64;
+
+				Chunk const & chunk = m_chunks[chunkIdx];
+				return (chunk.occupancy[subChunkIdx] & (1ull << bitIdx));
+			}
+			return false;
+		}
+
+		T * get(U64 idx)
+		{
+			return valid(idx) ? &m_chunks[idx / ChunkSize].items[idx % ChunkSize] : nullptr;
+		}
+
+		T const * get(U64 idx) const
+		{
+			return valid(idx) ? &m_chunks[idx / ChunkSize].items[idx % ChunkSize] : nullptr;
+		}
+
+		T & operator[](U64 idx)
+		{
+			return m_chunks[idx / ChunkSize].items[idx % ChunkSize];
+		}
+
+		T const & operator[](U64 idx) const
+		{
+			return m_chunks[idx / ChunkSize].items[idx % ChunkSize];
+		}
+
+		U64 size() const
+		{
+			return m_size;
+		}
+
+		U64 capacity() const
+		{
+			return m_chunks.size() * ChunkSize;
+		}
+
+		MemoryArena & arena()
+		{
+			return m_chunks.arena();
+		}
+
+		MemoryArena const & arena() const
+		{
+			return m_chunks.arena();
+		}
+
+		void swap(MemoryArenaPool & other)
+		{
+			m_chunks.swap(other.m_chunks);
+			Swap(m_size, other.m_size);
+		}
+
+		// Iterate over valid items
+		// TFunc = void(*)(T & item, U64 idx)
+		template <typename TFunc>
+		void foreach(TFunc && func)
+		{
+			foreach_impl<T&>(func);
+		}
+
+		// Iterate over valid items
+		// TFunc = void(*)(T const & item, U64 idx)
+		template <typename TFunc>
+		void foreach(TFunc && func) const
+		{
+			const_cast<MemoryArenaPool &>(*this).foreach_impl<T const &>(func);
+		}
+
+		// Iterate over the chunks of the pool (can contain both valid and invalid items)
+		// TFunc = void(*)(T * rangeStart, U64 rangeLength)
+		template <typename TFunc>
+		void foreach_chunk(TFunc && func)
+		{
+			foreach_chunk_impl<T*>(func);
+		}
+
+		// Iterate over the chunks of the pool (can contain both valid and invalid items)
+		// TFunc = void(*)(T copst * rangeStart, U64 rangeLength)
+		template <typename TFunc>
+		void foreach_chunk(TFunc && func) const
+		{
+			const_cast<MemoryArenaPool &>(*this).foreach_chunk_impl<T const *>(func);
+		}
+
+	private:
+		template <typename TRef, typename TFunc>
+		void foreach_impl(TFunc && func)
+		{
+			for(U64 chunkIdx = 0; chunkIdx < m_chunks.size(); ++chunkIdx)
+			{
+				Chunk & chunk = m_chunks[chunkIdx];
+				for(U64 subChunkIdx = 0; subChunkIdx < 8; ++subChunkIdx)
+				{
+					U64 baseItemIdxInChunk = subChunkIdx * 64;
+					U64 occupancy = chunk.occupancy[subChunkIdx];
+					while(occupancy != 0)
+					{
+						const U64 bitIdx = BitScanLSB(occupancy);
+						const U64 itemIdxInChunk = baseItemIdxInChunk + bitIdx;
+						const U64 globalItemIdx = chunkIdx * ChunkSize + itemIdxInChunk;
+						TRef item = chunk.items[itemIdxInChunk];
+						func(item, globalItemIdx);
+						occupancy &= ~(1ull << bitIdx);
+					}
+				}
+			}
+		}
+
+		template <typename TPtr, typename TFunc>
+		void foreach_chunk_impl(TFunc && func)
+		{
+			for(U64 chunkIdx = 0; chunkIdx < m_chunks.size(); ++chunkIdx)
+			{
+				TPtr rangeStart = m_chunks[chunkIdx].items;
+				func(rangeStart, ChunkSize);
+			}
+		}
+};
+```
+
+> TODO example
+{: .prompt-danger }
+
 
 ### ResourceHandleManager
 
-The **resource handle manager** (or sometimes called **handle-based resource pool**) is a system that manages a collection of objects using [**generational indices**](https://floooh.github.io/2018/06/17/handles-vs-pointers.html).
+The **resource handle manager** (or **handle-based resource pool**) is a system that manages a collection of objects using [**generational indices**](https://floooh.github.io/2018/06/17/handles-vs-pointers.html).
 <br/>It assigns lightweight **handles** to objects rather than exposing direct pointers, improving safety and control over resource lifetimes:
 
 - objects are accessed via handles (`{index, generation}`), preventing dangling references when objects are deleted

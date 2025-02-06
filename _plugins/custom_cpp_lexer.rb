@@ -24,9 +24,9 @@ module Rouge
         rule %r/\b(float2|float3|float4)\b/, Keyword::Type
         rule %r/\b(vec2|vec3|vec4)\b/, Keyword::Type
         #rule %r/[A-Z][a-zA-Z0-9_]*/, Name::Class # Starts with majuscule and then contains alpha numeric values
-        rule %r/\b(Flags|Flag|Span|T|Node|Type)\b/, Name::Class
-        rule %r/\b(MemoryArenaFlag|MemoryArena|FixedMemoryArena|VirtualMemoryArena|ScopedMemoryArena|MemoryArenaVector)\b/, Name::Class
-        rule %r/\b(Handle|TResourceHandle|ResourceHandle32|ResourceHandle64|ResourceHandleManager|Foo|FooHandle)\b/, Name::Class
+        rule %r/\b(Flags|Flag|Span|T|Node|Type|Chunk)\b/, Name::Class
+        rule %r/\b(MemoryArenaFlag|MemoryArena|FixedMemoryArena|VirtualMemoryArena|ScopedMemoryArena|MemoryArenaVector|MemoryArenaDeque|MemoryArenaPool)\b/, Name::Class
+        rule %r/\b(Handle|TResourceHandle|ResourceHandle32|ResourceHandle64|ResourceHandleManager|HandleContainer|ResourceContainer|Foo|FooHandle)\b/, Name::Class
         rule %r/\b(init|allocate|beg|end|ptr|rewind|reset|free|growable)\b/, Name::Function
         rule %r/\b(printf|push_back|pop_back|push_front|pop_front|clear)\b/, Name::Function
         rule %r/\b(createResource|getResource|destroyResource)\b/, Name::Function
@@ -40,9 +40,9 @@ module Rouge
         rule %r/\b(float2|float3|float4)\b/, Keyword::Type
         rule %r/\b(vec2|vec3|vec4)\b/, Keyword::Type
         #rule %r/[A-Z][a-zA-Z0-9_]*/, Name::Class # Starts with majuscule and then contains alpha numeric values
-        rule %r/\b(Flags|Flag|Span|T|Node|Type)\b/, Name::Class
-        rule %r/\b(MemoryArenaFlag|MemoryArena|FixedMemoryArena|VirtualMemoryArena|ScopedMemoryArena|MemoryArenaVector)\b/, Name::Class
-        rule %r/\b(Handle|TResourceHandle|ResourceHandle32|ResourceHandle64|ResourceHandleManager|Foo|FooHandle)\b/, Name::Class
+        rule %r/\b(Flags|Flag|Span|T|Node|Type|Chunk)\b/, Name::Class
+        rule %r/\b(MemoryArenaFlag|MemoryArena|FixedMemoryArena|VirtualMemoryArena|ScopedMemoryArena|MemoryArenaVector|MemoryArenaDeque|MemoryArenaPool)\b/, Name::Class
+        rule %r/\b(Handle|TResourceHandle|ResourceHandle32|ResourceHandle64|ResourceHandleManager|HandleContainer|ResourceContainer|Foo|FooHandle)\b/, Name::Class
         rule %r/\b(init|allocate|beg|end|ptr|rewind|reset|free|growable)\b/, Name::Function
         rule %r/\b(printf|push_back|pop_back|push_front|pop_front|clear)\b/, Name::Function
         rule %r/\b(createResource|getResource|destroyResource)\b/, Name::Function
