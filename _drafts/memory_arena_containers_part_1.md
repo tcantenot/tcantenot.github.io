@@ -14,37 +14,422 @@ comments: true
 <script src="{{ '/assets/js/no_scroll_on_expand.js' | relative_url }}"></script>
 
 
-This post is a follow up on my initial post on memory arenas.
+This post is a follow up on my initial [post](/posts/memory_arena/) on memory arenas where I explore some design and implementation choices for containers build on top of arenas.
 
-> TODO link to previous post
-{: .prompt-danger }
+## Implementation rationale
 
+For the implementation of memory arena backed containers, I decided to accept and follow some "properties" and "rules":
 
-## Misc
-
-For the implementation of MemoryArena-backed containers, I decided to follow some "rules":
-
-- The containers directly backed by a `MemoryArena` cannot shrink without "wasting" memory[^fn-cannot_shrink]:
-	* this is mostly true when the memory arena backing the container is shared by multiple containers or systems that allocate in it
-	<br/>the allocations get interleaved making harder to reclaim memory BUT the memory arena contains allocations with the same lifetime so this is a "non-issue" in practice.
-- Since deallocation happens at once, by either the releasing of the whole `MemoryArena` or via rewinding (`MemoryArena::rewind`), **no destructor are called**:
-	* the types held by the containers must be **trivially destructible**.
+- The containers memory footprint will *mostly* only increase during their usage[^fn-only_grow_exceptions]:
+	* this is mainly due to the fact that when the memory arena backing the container is shared by multiple containers or systems that allocate in it, the allocations get interleaved making harder to release memory back to the arena.
+	<br/>However, the memory arena should contain allocations with the **same lifetime** so this is a "non-issue" in practice.
+- Since deallocation happens at once, by either the releasing of the whole `MemoryArena` or via rewinding (`MemoryArena::rewind`), **destructors are not called**:
+	* this implies that the types held by the containers must (should?) be **trivially destructible**.
 - The containers *can* provide the option to "initialize" the objects by calling their constructor
 	* this is a *convenience* feature
 	* usually this implies that types stored in the containers must be *trivially constructible*
+- For now, not all containers can be copied:
+	* I am still unsure if I want to restrict the copy only between containers backed by the **same** arena
+- For now, I do not intend to be compatible with the STL (iterator, for range, traits, etc.)
 
-By following these rules/constraints, the implementation of MemoryArena-backed containers is made easier (and shorter).
+By following these rules/constraints, the implementation of memory arena backed containers is made easier (and shorter).
 
-[^fn-cannot_shrink]: With some exceptions as we will see
+[^fn-only_grow_exceptions]: With some exceptions as we will see
 
 ## MemoryArenaVector
 
 Dynamic size array similar to `std::vector` that is backed by a memory arena.
 
-> TODO show interface
-{: .prompt-danger }
+Below you can find most of the methods of the `MemoryArenaVector`'s interface
 
-A nice [trick](https://nullprogram.com/blog/2023/10/05/) explained by Dennis Schön and Chris Wellon is that if we detect that the `MemoryArenaVector` storage is the last memory arena,
+```cpp
+template <typename T, bool BInitObjects = false>
+class MemoryArenaVector
+{
+	public:
+		bool reserve(U64 capacity);
+		bool resize(U64 size);
+
+		template <typename ...Args>
+		bool emplace_back(Args && ...args);
+
+		bool push_back(T const & x);
+		bool push_back(T && x);
+
+		bool pop_back(T & element);
+		bool pop_back();
+
+		// Reduce the array capacity to its length.
+		// If the array is the last arena allocation, give the space back to the arena.
+		bool shrink_to_fit();
+
+		// Remove all the element from the array.
+		// If the array is the last arena allocation, give the space back to the arena.
+		void clear(bool bTryRewindArena = true);
+
+		T & operator[](U64 i);
+		T const & operator[](U64 i) const;
+
+		T * data();
+		T const * data() const;
+
+		T * begin();
+		T const * begin();
+		T * end();
+		T const * end();
+
+		U64 size();
+		U64 byteSize();
+		U64 capacity() const;
+};
+```
+
+* `reserve`: Pre-allocate 'freeSpace' elements at the back
+* `emplace_back`: Construct an element inplace at the back
+* `push_back`: Add an element at the back
+* `pop_back`: Removes an element from the back
+* `shrink_to_fit`: Reduce the array capacity to its length. If the array is the last arena allocation, give the space back to the arena.
+* `clear`: Remove all the element from the array. If the array is the last arena allocation, give the space back to the arena.
+
+<details>
+<summary>Implementation (click to expand)</summary>
+
+{% highlight cpp %}
+template <typename T, bool BInitObjects = false>
+class MemoryArenaVector
+{
+	static_assert(IsTriviallyDestructible<T>::Value, "T must be trivially destructible to be used with MemoryArenaVector (no destructor called)");
+
+	MemoryArena * m_arena; // Note: can never be nullptr (either points to a valid MemoryArena or to NullMemoryArena::sDummy)
+	T * m_data;
+	U64 m_length;
+	U64 m_capacity;
+
+	public:
+		MemoryArenaVector():
+			m_arena(&NullMemoryArena::sDummy),
+			m_data(nullptr),
+			m_length(0),
+			m_capacity(0)
+		{
+
+		}
+
+		explicit MemoryArenaVector(MemoryArena & a):
+			m_arena(&a),
+			m_data(nullptr),
+			m_length(0),
+			m_capacity(0)
+		{
+	
+		}
+
+		template <bool BInitObjects_>
+		MemoryArenaVector(MemoryArenaVector<T, BInitObjects_> const & other):
+			m_arena(other.m_arena)
+		{
+			copy_content(other);
+		}
+
+		template <bool BInitObjects_>
+		MemoryArenaVector(MemoryArenaVector<T, BInitObjects_> && other):
+			m_arena(other.m_arena),
+			m_data(other.m_data),
+			m_length(other.m_length),
+			m_capacity(other.m_capacity)
+		{
+			other.m_arena = &NullMemoryArena::sDummy;
+			other.m_data = nullptr;
+			other.m_length = 0;
+			other.m_capacity = 0;
+		}
+
+		// Note: the operator= does not copy the other arena but rather keeps its own
+		// -> only the elements from the other MemoryArenaVector are copied over.
+		template <bool BInitObjects_>
+		MemoryArenaVector & operator=(MemoryArenaVector<T, BInitObjects_> const & other)
+		{
+			copy_content(other);
+			return *this;
+		}
+
+		template <bool BInitObjects_>
+		MemoryArenaVector & operator=(MemoryArenaVector<T, BInitObjects_> && other)
+		{
+			swap(other);
+			return *this;
+		}
+
+		~MemoryArenaVector() = default;
+
+		bool reserve(U64 capacity)
+		{
+			if(capacity <= m_capacity)
+				return true;
+
+			if(m_length == 0) // If no storage has been allocated yet, make an initial allocation
+			{
+				if(T * data = m_arena->allocateAs<T>(capacity * sizeof(T), alignof(T)))
+				{
+					m_data = data;
+					m_capacity = capacity;
+					m_length = 0;
+					return true;
+				}
+				else
+				{
+					return false;
+				}
+			}
+			else // Otherwise grow the storage
+			{
+				if(is_last_arena_allocation()) // If the array ends at the next arena allocation, extend it.
+				{
+					if(T * data = m_arena->allocateAs<T>((capacity - m_capacity) * sizeof(T), 1))
+					{
+						m_capacity = capacity;
+						return true;
+					}
+					else
+					{
+						return false;
+					}
+				}
+				else // Otherwise allocate a new array and copy
+				{
+					if(T * data = m_arena->allocateAs<T>(capacity * sizeof(T), alignof(T)))
+					{
+						if constexpr(BInitObjects)
+						{
+							for(U64 i = 0; i < m_length; ++i)
+								data[i] = m_data[i];
+						}
+						else
+						{
+							Memcpy(data, m_data, m_length * sizeof(T));
+						}
+						m_data = data;
+						m_capacity = capacity;
+						return true;
+					}
+					else
+					{
+						return false;
+					}
+				}
+			}
+		}
+
+		bool resize(U64 size)
+		{
+			if(size > m_capacity)
+			{
+				if(!reserve(size))
+					return false;
+
+				if constexpr(BInitObjects)
+				{
+					for(U64 i = m_length; i < size; ++i)
+					{
+						if constexpr(IsMemoryArenaAware<T>::Value)
+							new(&m_data[i]) T{*m_arena};
+						else
+							new(&m_data[i]) T();
+					}
+				}
+			}
+
+			m_length = size;
+			return true;
+		}
+
+		template <typename ...Args>
+		bool emplace_back(Args && ...args)
+		{
+			if(m_length >= m_capacity)
+			{
+				if(!grow())
+					return false;
+			}
+
+			const U64 idx = m_length++;
+
+			if constexpr(IsMemoryArenaAware<T>::Value)
+				new(&m_data[idx]) T{*m_arena, K_FWD(args)...};
+			else
+				new(&m_data[idx]) T(K_FWD(args)...);
+
+			return true;
+		}
+
+		bool push_back(T const & x)
+		{
+			return emplace_back(x);
+		}
+
+		bool push_back(T && x)
+		{
+			return emplace_back(K_MOVE(x));
+		}
+
+		bool pop_back(T & element)
+		{
+			if(m_length > 0)
+			{
+				element = K_MOVE(m_data[m_length-1]);
+				m_length -= 1;
+				return true;
+			}
+			return false;
+		}
+
+		bool pop_back()
+		{
+			T x;
+			return pop_back(x);
+		}
+
+		// Reduce the array capacity to its length.
+		// If the array is the last arena allocation, give the space back to the arena.
+		bool shrink_to_fit()
+		{
+			if(m_length < m_capacity)
+			{
+				if(is_last_arena_allocation())
+				{
+					void * mark = PtrUtils::Add(m_data, m_length);
+					m_arena->rewind(mark);
+				}
+
+				m_capacity = m_length;
+				return true;
+			}
+			return false;
+		}
+
+		// Remove all the element from the array.
+		// If the array is the last arena allocation, give the space back to the arena.
+		void clear(bool bTryRewindArena = true)
+		{
+			if(bTryRewindArena && is_last_arena_allocation())
+				m_arena->rewind(m_data);
+
+			m_data = nullptr;
+			m_capacity = 0;
+			m_length = 0;
+		}
+
+		T & operator[](U64 i)
+		{
+			K_ASSERT((U64)i < m_length);
+			return m_data[i];
+		}
+
+		T const & operator[](U64 i) const
+		{
+			K_ASSERT((U64)i < m_length);
+			return m_data[i];
+		}
+
+		T * data()
+		{
+			return m_data;
+		}
+
+		T const * data() const
+		{
+			return m_data;
+		}
+
+		T * begin()
+		{
+			return m_data;
+		}
+
+		T const * begin() const
+		{
+			return m_data;
+		}
+
+		T * end()
+		{
+			return m_data + m_length;
+		}
+
+		T const * end() const
+		{
+			return m_data + m_length;
+		}
+	
+		U64 size() const
+		{
+			return m_length;
+		}
+
+		U64 byteSize() const
+		{
+			return m_length * sizeof(T);
+		}
+
+		U64 capacity() const
+		{
+			return m_capacity;
+		}
+
+		MemoryArena & arena()
+		{
+			return *m_arena;
+		}
+
+		MemoryArena const & arena() const
+		{
+			return *m_arena;
+		}
+
+		template <bool BInitObjects_>
+		void swap(MemoryArenaVector<T, BInitObjects_> & other)
+		{
+			Swap(m_arena, other.m_arena);
+			Swap(m_data, other.m_data);
+			Swap(m_length, other.m_length);
+			Swap(m_capacity, other.m_capacity);
+		}
+
+	private:
+		bool is_last_arena_allocation() const
+		{
+			return m_data && (m_arena->ptr() == PtrUtils::Add(m_data, m_capacity * sizeof(T))); // Array ends at the next arena allocation
+		}
+
+		bool grow()
+		{
+			return reserve(m_data ? m_capacity * 2 : 2);
+		}
+
+		template <bool BInitObjects_>
+		void copy_content(MemoryArenaVector<T, BInitObjects_> const & other)
+		{
+			clear();
+			if(reserve(other.m_capacity))
+			{
+				if constexpr(BInitObjects)
+				{
+					for(U64 i = 0; i < other.m_length; ++i)
+						m_data[i] = other.m_data[i];
+				}
+				else
+				{
+					Memcpy(m_data, other.m_data, other.m_length * sizeof(T));
+				}
+				m_length = other.m_length;
+			}
+		}
+};
+
+{% endhighlight %}
+</details>
+
+<br/>A nice [trick](https://nullprogram.com/blog/2023/10/05/) explained by Dennis Schön and Chris Wellon is that if we detect that the `MemoryArenaVector` storage is the last memory arena,
 we can grow it without moving the current elements by just allocating a bit more from the memory arena and only updating the vector size (the data pointer stays the same).
 
 ```mermaid
@@ -80,12 +465,6 @@ style MemoryArenaVector fill:#168
 style FreeSpace fill:#186
 ```
 
-> TODO code snippet
-{: .prompt-danger }
-
-> TODO gist
-{: .prompt-danger }
-
 When used alone with a `VirtualMemoryArena` with a *huge* memory range, it can act like an "infinite" dynamic array (similar to the [`VMemArray`](https://github.com/jlaumon/AssetCooker/blob/main/src/VMemArray.h) described by Jeremy Laumon)
 
 A drawback with the `MemoryArenaVector` is that, when it needs to grow, it wastes memory if any allocation happens after the initial `MemoryArenaVector` allocation within the same memory arena
@@ -114,7 +493,6 @@ style OldMemoryArenaVector fill:#555,color:#777
 style NewMemoryArenaVector fill:#168
 style FreeSpace fill:#186
 ```
-
 
 
 If there is the need to have a sequence of values that can be contiguously indexed but not necessarily contiguous in memory and that do not waste memory on growth, the `MemoryArenaDeque` is a better fit.
@@ -220,7 +598,7 @@ style Array2 fill:#179
 style FreeSpace fill:#186
 ```
 
-> Ignoring the case where we performed a pre-reservation (via `reserve_front`|`reserve_back`), after the 1st growth one 1 pointer (8 bytes) is "lost", after the 2nd two more (3 = 24 bytes), after N growth we "lost" $$\frac{N(N+1)}{2}$$ pointers.
+> Ignoring the case where we performed a pre-reservation (via `reserve_front`|`reserve_back`), after the 1st growth 1 pointer (8 bytes) is "lost", after the 2nd two more (3 = 24 bytes), after N growth we "lost" $$\frac{N(N+1)}{2}$$ pointers.
 <br/>If the array sizes chosen for the `MemoryArenaDeque` or the type stored are big enough, the "waste" does not represent a significant amount.
 {: .prompt-tip }
 
@@ -281,11 +659,15 @@ class MemoryArenaDeque
 };
 ```
 
-* `reserve_back`: Try to ensure we pre-allocated 'freeSpace' elements at the back
-* `reserve_front`: Try to ensure we pre-allocated 'freeSpace' elements at the front
-
-> TODO Describes other interface methods
-{: .prompt-danger }
+* `reserve_back`: Pre-allocate 'freeSpace' elements at the back
+* `reserve_front`: Pre-allocate 'freeSpace' elements at the front
+* `emplace_back`: Construct an element inplace at the back
+* `push_back`: Add an element at the back
+* `emplace_front`: Construct an element inplace at the front
+* `push_front`: Add an element at the front
+* `pop_back`: Removes an element from the back
+* `pop_front`: Removes an element from the front
+* `foreach_range`: Iterates over the continuous ranges of the deque (= arrays)
 
 <details>
 <summary>Implementation (click to expand)</summary>
@@ -1588,13 +1970,13 @@ K_ASSERT(f2 != nullptr);
 
 ## Laying the foundation: what's next?
 
-In this post we mostly explored some "array-like" containers.
-<br/>I did not (and probably will not) dive too deep into the rabbit-hole of containers because the containers presented here are already quite versatile and cover a lot of my practical use cases.
-<br/>There is still however a second type of containers that I want to use with arenas: hashmaps[^fn-arrays_and_hashmaps]!
+I probably will not dive deeper into the rabbit-hole of containers because the ones presented here are already quite versatile and cover a lot of my practical use cases (although I might revisit their interfaces if need be).
+
+In this post we explored mostly "array-like" containers, however there is stiil a second type of containers that I want to use with arenas: **hashmaps**[^fn-arrays_and_hashmaps]!
+<br/>But that's for another time, thanks for reading!
 
 [^fn-arrays_and_hashmaps]: All we need are arrays and hashmaps, right?
 
-But that's it for now, thanks for reading!
 
 
 ## References
