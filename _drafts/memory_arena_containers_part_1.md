@@ -11,6 +11,9 @@ mermaid: true
 comments: true
 ---
 
+<script src="{{ '/assets/js/no_scroll_on_expand.js' | relative_url }}"></script>
+
+
 This post is a follow up on my initial post on memory arenas.
 
 > TODO link to previous post
@@ -221,13 +224,679 @@ style FreeSpace fill:#186
 <br/>If the array sizes chosen for the `MemoryArenaDeque` or the type stored are big enough, the "waste" does not represent a significant amount.
 {: .prompt-tip }
 
-> TODO show interface
+Below you can find most of the methods of the `MemoryArenaDeque`'s interface
+
+```cpp
+template <typename T, U64 TArraySize, bool BInitObjects = false>
+class MemoryArenaDeque
+{
+	public:
+		// Try to ensure we pre-allocated 'freeSpace' elements at the back
+		bool reserve_back(U64 freeSpace);
+
+		// Try to ensure we pre-allocated 'freeSpace' elements at the front
+		bool reserve_front(U64 freeSpace);
+
+		template <typename ...Args>
+		bool emplace_back(Args && ...args);
+
+		bool push_back(T const & x);
+		bool push_back(T && x);
+
+		template <typename ...Args>
+		bool emplace_front(Args && ...args);
+
+		bool push_front(T const & x);
+		bool push_front(T && x);
+
+		bool pop_back(T & x);
+		bool pop_back();
+
+		bool pop_front(T & x);
+		bool pop_front();
+
+		void clear();
+
+		T & operator[](U64 i);
+		T const & operator[](U64 i) const;
+
+		U64 size() const;
+		U64 array_size() const;
+		U64 num_arrays() const;
+		U64 capacity() const;
+		U64 free_space_front() const;
+		U64 free_space_back() const;
+
+		// TFunc = void(*)(T * rangeStart, U64 rangeLength)
+		template <typename TFunc>
+		void foreach_range(TFunc && func);
+
+		// TFunc = void(*)(T const * rangeStart, U64 rangeLength)
+		template <typename TFunc>
+		void foreach_range(TFunc && func) const;
+
+		// Copy the content of the MemoryArenaDeque into the memory zone represented by the span.
+		// Returns a span over the elements that have been copied over.
+		Span<T> copy_to(Span<T> const & dst) const;
+};
+```
+
+* `reserve_back`: Try to ensure we pre-allocated 'freeSpace' elements at the back
+* `reserve_front`: Try to ensure we pre-allocated 'freeSpace' elements at the front
+
+> TODO Describes other interface methods
 {: .prompt-danger }
 
-> TODO gist
-{: .prompt-danger }
+<details>
+<summary>Implementation (click to expand)</summary>
 
-It can be used to implement a **stack**, a **queue**, a **growable pool of objects**, a **resource handle manager** etc.
+{% highlight cpp %}
+#define K_MEMORY_ARENA_DEQUE_ENABLE_INVARIANTS_CHECK 0
+
+#if K_MEMORY_ARENA_DEQUE_ENABLE_INVARIANTS_CHECK
+#define K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS() K_ASSERT(check_invariants())
+#else
+#define K_MEMORY_ARENA_DEQUE_ENABLE_INVARIANTS_CHECK() K_NOOP()
+#endif
+
+// Note: the 'm_arrays' array containing pointers to the fixed-size arrays is not released to the arena when resized
+// -> we accept this small overhead of memory usage to keep the implementation simple (the size of the array should be
+// small for a reasonnable ArraySize)
+// Inspired by: https://medium.com/@ryan_forrester_/how-deque-is-implemented-in-c-an-in-depth-look-703b601ace29
+//
+// No exceptions are thrown:
+//  - if a constructor fails to allocate, the container stays empty
+//  - if a method can fail, it returns a boolean
+//
+// Cannot shrink, can only be released at once
+template <typename T, U64 TArraySize, bool BInitObjects = false>
+class MemoryArenaDeque
+{
+	static_assert(IsTriviallyDestructible<T>::Value, "T must be trivially destructible to be used with MemoryArenaDeque (no destructor called)");
+
+	MemoryArena * m_arena; // Note: can never be nullptr (either points to a valid MemoryArena or to NullMemoryArena::sDummy)
+
+	// [ ptr ] [ ptr ] [ ptr ]  <-- Array of pointers to data blocks (called 'map')
+	//    |       |       |
+	//    v       v       v
+	// [array] [array] [array]  <-- Data blocks containing 'ArraySize' elements
+	T ** m_arrays;
+	U64 m_numArrays;
+	U64 m_beg;
+	U64 m_end; // Points to one after last element
+	U64 m_size;
+	U64 m_frontArrayIdx;
+	U64 m_backArrayIdx;
+
+	public:
+		using Type = T;
+		static constexpr U64 ArraySize = TArraySize;
+
+		MemoryArenaDeque():
+			m_arena(&NullMemoryArena::sDummy),
+			m_arrays(nullptr),
+			m_numArrays(0),
+			m_beg(0),
+			m_end(0),
+			m_size(0),
+			m_frontArrayIdx(0),
+			m_backArrayIdx(0)
+		{
+
+		}
+
+		explicit MemoryArenaDeque(MemoryArena & arena):
+			m_arena(&arena),
+			m_arrays(nullptr),
+			m_numArrays(0),
+			m_beg(0),
+			m_end(0),
+			m_size(0),
+			m_frontArrayIdx(0),
+			m_backArrayIdx(0)
+		{
+
+		}
+
+		MemoryArenaDeque(MemoryArenaDeque const & other) = delete;
+
+		template <bool BInitObjects_>
+		MemoryArenaDeque(MemoryArenaDeque<T, TArraySize, BInitObjects_> && other):
+			m_arena(other.m_arena),
+			m_arrays(other.m_arrays),
+			m_numArrays(other.m_numArrays),
+			m_beg(other.m_beg),
+			m_end(other.m_end),
+			m_size(other.m_size),
+			m_frontArrayIdx(other.m_frontArrayIdx),
+			m_backArrayIdx(other.m_backArrayIdx)
+		{
+			other.m_arena = &NullMemoryArena::sDummy;
+			other.m_arrays = nullptr;
+			other.m_numArrays = 0;
+			other.m_beg = 0;
+			other.m_end = 0;
+			other.m_size = 0;
+			other.m_frontArrayIdx = 0;
+			other.m_backArrayIdx = 0;
+		}
+
+		MemoryArenaDeque & operator=(MemoryArenaDeque const & other) = delete;
+
+		template <bool BInitObjects_>
+		MemoryArenaDeque & operator=(MemoryArenaDeque<T, TArraySize, BInitObjects_> && other)
+		{
+			swap(other);
+			return *this;
+		}
+
+		~MemoryArenaDeque() = default;
+
+		// Try to ensure we pre-allocated 'freeSpace' elements at the back
+		bool reserve_back(U64 freeSpace)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			const U64 currFreeSpace = free_space_back();
+			if(freeSpace <= currFreeSpace)
+				return true;
+			const bool bSuccess = grow_free_space(freeSpace, true);
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			return bSuccess;
+		}
+
+		// Try to ensure we pre-allocated 'freeSpace' elements at the front
+		bool reserve_front(U64 freeSpace)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			const U64 currFreeSpace = free_space_front();
+			if(freeSpace <= currFreeSpace)
+				return true;
+			const bool bSuccess = grow_free_space(freeSpace, false);
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			return bSuccess;
+		}
+
+		template <typename ...Args>
+		bool emplace_back(Args && ...args)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+
+			// If no storage has been allocated yet, make an initial allocation
+			if(m_numArrays == 0)
+			{
+				if(!grow_free_space(ArraySize, true))
+				{
+					K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+					return false;
+				}
+				m_beg = 0;
+				m_end = 0;
+			}
+			// If the current array is full, use the next one
+			else if(m_end == ArraySize)
+			{
+				// If the current array is the last one, try to reserve one more
+				if(m_backArrayIdx == m_numArrays-1)
+				{
+					if(!grow_free_space(ArraySize, true))
+					{
+						K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+						return false;
+					}
+				}
+				K_ASSERT(m_backArrayIdx < m_numArrays);
+				m_backArrayIdx += 1;
+				m_end = 0;
+			}
+
+			K_ASSERT(m_end < ArraySize);
+			new(&m_arrays[m_backArrayIdx][m_end]) T(K_FWD(args)...);
+			m_end  += 1;
+			m_size += 1;
+
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			return true;
+		}
+
+		bool push_back(T const & x)
+		{
+			return emplace_back(x);
+		}
+
+		bool push_back(T && x)
+		{
+			return emplace_back(K_MOVE(x));
+		}
+
+		template <typename ...Args>
+		bool emplace_front(Args && ...args)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+
+			// If no storage has been allocated yet, make an initial allocation
+			if(m_numArrays == 0)
+			{
+				if(!grow_free_space(ArraySize, false))
+				{
+					K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+					return false;
+				}
+				m_beg = ArraySize;
+				m_end = ArraySize;
+			}
+			// If the current array is full, use the previous one
+			else if(m_beg == 0)
+			{
+				// If the current array is the first one, try to reserve one more
+				if(m_frontArrayIdx == 0)
+				{
+					if(!grow_free_space(ArraySize, false))
+					{
+						K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+						return false;
+					}
+				}
+				K_ASSERT(m_frontArrayIdx > 0);
+				m_frontArrayIdx -= 1;
+				m_beg = ArraySize;
+			}
+			K_ASSERT(m_beg > 0);
+			m_beg  -= 1;
+			new(&m_arrays[m_frontArrayIdx][m_beg]) T(K_FWD(args)...);
+			m_size += 1;
+
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			return true;
+		}
+
+		bool push_front(T const & x)
+		{
+			return emplace_front(x);
+		}
+
+		bool push_front(T && x)
+		{
+			return emplace_front(K_MOVE(x));
+		}
+
+		bool pop_back(T & x)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+
+			if(m_size == 0)
+				return false;
+
+			x = K_MOVE(m_arrays[m_backArrayIdx][m_end-1]);
+
+			if(m_end == 1 && m_backArrayIdx > m_frontArrayIdx)
+			{
+				m_end = ArraySize;
+				m_backArrayIdx -= 1;
+			}
+			else
+			{
+				m_end -= 1;
+			}
+
+			m_size -= 1;
+
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			return true;
+		}
+
+		bool pop_back()
+		{
+			T x;
+			return pop_back(x);
+		}
+
+		bool pop_front(T & x)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+
+			if(m_size == 0)
+				return false;
+
+			x = K_MOVE(m_arrays[m_frontArrayIdx][m_beg]);
+
+			if(m_beg == ArraySize-1 && m_frontArrayIdx < m_backArrayIdx)
+			{
+				m_beg = 0;
+				m_frontArrayIdx += 1;
+			}
+			else
+			{
+				K_ASSERT(m_beg != ArraySize-1 || m_size==1);
+				m_beg += 1;
+			}
+
+			m_size -= 1;
+
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			return true;
+		}
+
+		bool pop_front()
+		{
+			T x;
+			return pop_front(x);
+		}
+
+		void clear()
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			m_beg = 0;
+			m_end = 0;
+			m_size = 0;
+			m_frontArrayIdx = 0;
+			m_backArrayIdx = 0;
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+		}
+
+		T & operator[](U64 i)
+		{
+			const U64 arrayIdx    = (m_beg + i) / ArraySize;
+			const U64 arrayOffset = (m_beg + i) % ArraySize;
+			K_ASSERT(arrayIdx < m_numArrays);
+			return m_arrays[m_frontArrayIdx + arrayIdx][arrayOffset];
+		}
+
+		T const & operator[](U64 i) const
+		{
+			const U64 arrayIdx    = (m_beg + i) / ArraySize;
+			const U64 arrayOffset = (m_beg + i) % ArraySize;
+			K_ASSERT(arrayIdx < m_numArrays);
+			return m_arrays[m_frontArrayIdx + arrayIdx][arrayOffset];
+		}
+
+		U64 size() const
+		{
+			return m_size;
+		}
+
+		U64 array_size() const
+		{
+			return ArraySize;
+		}
+
+		U64 num_arrays() const
+		{
+			return m_numArrays;
+		}
+
+		U64 capacity() const
+		{
+			return m_numArrays * ArraySize;
+		}
+
+		U64 free_space_front() const
+		{
+			if(m_numArrays == 0)
+				return 0;
+
+			U64 freeSpace = m_frontArrayIdx * ArraySize;
+			freeSpace += m_beg;
+			return freeSpace;
+		}
+
+		U64 free_space_back() const
+		{
+			if(m_numArrays == 0)
+				return 0;
+
+			U64 freeSpace = (m_numArrays - 1 - m_backArrayIdx) * ArraySize;
+			freeSpace += ArraySize - m_end;
+			return freeSpace;
+		}
+
+		MemoryArena & arena()
+		{
+			return *m_arena;
+		}
+
+		MemoryArena const & arena() const
+		{
+			return *m_arena;
+		}
+
+		template <bool BInitObjects_>
+		void swap(MemoryArenaDeque<T, TArraySize, BInitObjects_> & other)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+			Swap(m_arena, other.m_arena);
+			Swap(m_arrays, other.m_arrays);
+			Swap(m_numArrays, other.m_numArrays);
+			Swap(m_beg, other.m_beg);
+			Swap(m_end, other.m_end);
+			Swap(m_size, other.m_size);
+			Swap(m_frontArrayIdx, other.m_frontArrayIdx);
+			Swap(m_backArrayIdx, other.m_backArrayIdx);
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+		}
+
+		// TFunc = void(*)(T * rangeStart, U64 rangeLength)
+		template <typename TFunc>
+		void foreach_range(TFunc && func)
+		{
+			foreach_range_impl<T*>(func);
+		}
+
+		// TFunc = void(*)(T const * rangeStart, U64 rangeLength)
+		template <typename TFunc>
+		void foreach_range(TFunc && func) const
+		{
+			const_cast<MemoryArenaDeque &>(*this).foreach_range_impl<T const *>(func);
+		}
+
+		// Copy the content of the MemoryArenaDeque into the memory zone represented by the span.
+		// Returns a span over the elements that have been copied over.
+		Span<T> copy_to(Span<T> const & dst) const
+		{
+			if(dst.data == nullptr || dst.length == 0)
+				return { nullptr, 0 };
+
+			T * pDst = dst.data;
+			U64 dstCopiedSize = 0;
+			U64 dstRemainingSpace = dst.length;
+
+			foreach_range([&](T const * rangeStart, U64 rangeLength)
+			{
+				const U64 sizeToCopy = rangeLength <= dstRemainingSpace ? rangeLength : dstRemainingSpace;
+				if(sizeToCopy > 0)
+				{
+					Memcpy(pDst, rangeStart, sizeToCopy * sizeof(T));
+					pDst += sizeToCopy;
+					dstCopiedSize += sizeToCopy;
+					dstRemainingSpace -= sizeToCopy;
+				}
+			});
+
+			return { dst.data, dstCopiedSize };
+		}
+
+	private:
+		bool check_invariants()
+		{
+			if(m_numArrays > 0)
+			{
+				// The actual number of used arrays must be lower or equal to the number of allocated ones
+				K_ASSERT((m_backArrayIdx-m_frontArrayIdx+1) <= m_numArrays);
+			}
+
+			if(m_size == 0) // If the deque is empty
+			{
+				K_ASSERT(m_backArrayIdx == m_frontArrayIdx); // The front and back array must be the same
+				K_ASSERT(m_end == m_beg); // The beg and end index must point to the same element
+			}
+			else
+			{
+				K_ASSERT((m_end >  0 && m_end <= ArraySize) || (m_end == 0 && m_numArrays > 1)); // m_end points to the element after the end with the back array
+				K_ASSERT((m_beg >= 0 && m_beg <  ArraySize) || (m_beg == ArraySize && m_numArrays > 1)); // m_beg points to the first element in the front array
+				K_ASSERT(m_backArrayIdx >= m_frontArrayIdx); // The back array is either the same or after the front array
+
+				if(m_backArrayIdx != m_frontArrayIdx)
+				{
+					// (m_backArrayIdx-m_frontArrayIdx+1) * ArraySize --> capacity of the arrays that currently have at least 1 element
+					// (ArraySize-m_end) --> number of free slots in back array
+					// (ArraySize-(ArraySize-m_beg)) -> number of free slots in front array
+					K_ASSERT(m_size == (m_backArrayIdx-m_frontArrayIdx+1)*ArraySize - (ArraySize-m_end) - (ArraySize-(ArraySize-m_beg)));
+				}
+				else
+				{
+					K_ASSERT(m_end > m_beg);
+					K_ASSERT(m_size == (m_end - m_beg));
+				}
+			}
+
+			return true;
+		}
+
+		bool grow_free_space(U64 freeSpace, bool bAtBack = true)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+
+			const U64 currFreeSpace = bAtBack ? free_space_back() : free_space_front();
+			K_ASSERT(freeSpace > currFreeSpace);
+
+			bool bSuccess = false;
+			void * mark = m_arena->ptr();
+
+			if(m_numArrays == 0) // If no storage has been allocated yet, make an initial allocation
+			{
+				const U64 newNumArrays = (freeSpace + ArraySize - 1) / ArraySize;
+				if(T ** newArrays = m_arena->allocateElements<T*>(newNumArrays, MemoryArenaFlag::ZERO_MEMORY).data)
+				{
+					// Note: allocate separately from the 'array of pointers' since T can have a different alignment
+					if(T * data = m_arena->allocateElements<T>(newNumArrays * ArraySize, MemoryArenaFlag::ZERO_MEMORY).data)
+					{
+						for(U64 i = 0; i < newNumArrays; ++i)
+							newArrays[i] = data + i * ArraySize;
+						m_arrays = newArrays;
+						m_numArrays = newNumArrays;
+
+						if(bAtBack)
+						{
+							m_frontArrayIdx = 0;
+							m_beg = 0;
+							m_backArrayIdx = 0;
+							m_end = 0;
+						}
+						else
+						{
+							m_frontArrayIdx = newNumArrays-1;
+							m_beg = ArraySize;
+							m_backArrayIdx = newNumArrays-1;
+							m_end = ArraySize;
+						}
+
+						bSuccess = true;
+					}
+					else
+					{
+						m_arena->rewind(mark);
+						bSuccess = false;
+					}
+				}
+				else
+				{
+					bSuccess = false;
+				}
+			}
+			else // Otherwise grow the storage
+			{
+				// Allocate bigger array of 'pointers to fixed-sized arrays'
+				const U64 currCapacity = capacity();
+				const U64 newCapacity  = currCapacity + freeSpace - currFreeSpace;
+				const U64 newNumArrays = (newCapacity + ArraySize - 1) / ArraySize;
+				if(T ** newArrays = m_arena->allocateElements<T*>(newCapacity, MemoryArenaFlag::ZERO_MEMORY).data)
+				{
+					// Note: allocate separately from the 'array of pointers' since T can have a different alignment
+					const U64 numArraysAdded = newNumArrays - m_numArrays;
+					if(T * data = m_arena->allocateElements<T>(numArraysAdded * ArraySize, MemoryArenaFlag::ZERO_MEMORY).data)
+					{
+						// Copy over the previous array of 'pointers to fixed-sized arrays'
+						const U64 prevOffset = bAtBack ? 0 : numArraysAdded;
+						Memcpy(newArrays + prevOffset, m_arrays, m_numArrays * sizeof(T*));
+
+						// Add new arrays
+						const U64 newOffset = bAtBack ? m_numArrays : 0;
+						for(U64 i = 0; i < numArraysAdded; ++i)
+							newArrays[i + newOffset] = data + i * ArraySize;
+
+						if(!bAtBack)
+						{
+							m_frontArrayIdx += numArraysAdded;
+							m_backArrayIdx  += numArraysAdded;
+						}
+
+						m_arrays = newArrays;
+						m_numArrays = newNumArrays;
+						bSuccess = true;
+					}
+					else
+					{
+						m_arena->rewind(mark);
+						bSuccess = false;
+					}
+				}
+				else
+				{
+					bSuccess = false;
+				}
+			}
+
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+
+			return bSuccess;
+		}
+
+		template <typename TPtr, typename TFunc>
+		void foreach_range_impl(TFunc && func)
+		{
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+
+			if(m_size == 0)
+				return;
+
+			// Iterate over front array
+			{
+				const U64 frontArraySize = ArraySize - m_beg < m_size ? ArraySize - m_beg : m_size;
+				TPtr rangeStart  = m_arrays[m_frontArrayIdx] + m_beg;
+				U64 rangeLength = frontArraySize;
+				func(rangeStart, rangeLength);
+			}
+
+			// Iterate over intermediate arrays
+			if(m_backArrayIdx >= m_frontArrayIdx + 2)
+			{
+				for(U64 arrayIdx = m_frontArrayIdx + 1; arrayIdx < m_backArrayIdx; ++arrayIdx)
+				{
+					TPtr rangeStart  = m_arrays[arrayIdx];
+					U64 rangeLength = ArraySize;
+					func(rangeStart, rangeLength);
+				}
+			}
+
+			// Iterate over back array
+			if(m_backArrayIdx > m_frontArrayIdx)
+			{
+				TPtr rangeStart  = m_arrays[m_backArrayIdx];
+				U64 rangeLength = m_end;
+				func(rangeStart, rangeLength);
+			}
+
+			K_MEMORY_ARENA_DEQUE_CHECK_INVARIANTS();
+		}
+
+		template <typename T, U64 TArraySize, bool BInitObjects>
+		friend bool SerializeBinary(BinarySerializationContext & ctx, MemoryArenaDeque<T, TArraySize, BInitObjects> & x);
+};
+{% endhighlight %}
+</details>
+
+<br/>
+> The `MemoryArenaDeque` makes a great building block to implement various other data structures such as a **stack**, a **queue**, a **growable pool of objects**, a **resource handle manager** etc.
+{: .prompt-tip }
 
 ### Stack
 
@@ -286,9 +955,11 @@ Its relies on a `MemoryArenaDeque` with occupancy bitmasks to tracks valid/free 
 ```cpp
 const U64 MemoryArenaPoolInvalidIndex = ~0ull;
 
-template <typename T, U64 Granularity = 1024>
+template <typename T, U64 Granularity = 1024, bool BInitObjects = false>
 class MemoryArenaPool
 {
+	static_assert(IsTriviallyDestructible<T>::Value, "T must be trivially destructible to be used with MemoryArenaPool (no destructor called)");
+
 	static constexpr U64 ChunkSize = 64 * 8; // 512
 	static_assert(Granularity % ChunkSize == 0);
 
@@ -298,7 +969,7 @@ class MemoryArenaPool
 		U64 occupancy[8];   // Note: size = 64 bytes = 1 cache line
 	};
 
-	MemoryArenaDeque<Chunk, Granularity/ChunkSize> m_chunks;
+	MemoryArenaDeque<Chunk, Granularity/ChunkSize, BInitObjects> m_chunks;
 	U64 m_size;
 
 	public:
@@ -318,7 +989,8 @@ class MemoryArenaPool
 
 		MemoryArenaPool(MemoryArenaPool const & other) = delete;
 
-		MemoryArenaPool(MemoryArenaPool && other):
+		template <bool BInitObjects_>
+		MemoryArenaPool(MemoryArenaPool<T, Granularity, BInitObjects_> && other):
 			m_chunks(K_MOVE(other.m_chunks)),
 			m_size(other.m_size)
 		{
@@ -327,7 +999,8 @@ class MemoryArenaPool
 
 		MemoryArenaPool & operator=(MemoryArenaPool const & other) = delete;
 
-		MemoryArenaPool & operator=(MemoryArenaPool && other)
+		template <bool BInitObjects_>
+		MemoryArenaPool & operator=(MemoryArenaPool<T, Granularity, BInitObjects_> && other)
 		{
 			swap(other);
 			return *this;
@@ -474,7 +1147,8 @@ class MemoryArenaPool
 			return m_chunks.arena();
 		}
 
-		void swap(MemoryArenaPool & other)
+		template <bool BInitObjects_>
+		void swap(MemoryArenaPool<T, Granularity, BInitObjects_> & other)
 		{
 			m_chunks.swap(other.m_chunks);
 			Swap(m_size, other.m_size);
@@ -521,7 +1195,7 @@ class MemoryArenaPool
 				Chunk & chunk = m_chunks[chunkIdx];
 				for(U64 subChunkIdx = 0; subChunkIdx < 8; ++subChunkIdx)
 				{
-					U64 baseItemIdxInChunk = subChunkIdx * 64;
+					const U64 baseItemIdxInChunk = subChunkIdx * 64;
 					U64 occupancy = chunk.occupancy[subChunkIdx];
 					while(occupancy != 0)
 					{
@@ -545,11 +1219,120 @@ class MemoryArenaPool
 				func(rangeStart, ChunkSize);
 			}
 		}
+
+		template <typename T, U64 Granularity, bool BInitObjects>
+		friend bool SerializeBinary(BinarySerializationContext & ctx, MemoryArenaPool<T, Granularity, BInitObjects> & x);
 };
 ```
 
-> TODO example
-{: .prompt-danger }
+<details>
+<summary>Example (click to expand)</summary>
+
+{% highlight cpp %}
+
+VirtualMemoryArena memoryArena;
+memoryArena.init(64ull * 1024ull * 1024ull * 1024ull);
+
+struct Foo
+{
+	U64 i;
+	float f;
+
+	Foo(): i(0), f(0) { }
+	Foo(U64 ii, float ff): i(ii), f(ff) { }
+};
+
+MemoryArenaPool<Foo> pool(memoryArena);
+
+// Insert items
+for(U64 i = 0; i < 1024; ++i)
+{
+	const U64 idx = pool.emplace(i * 2, float(i) * 2.f + 1.f);
+	K_ASSERT(idx == i);
+	const Foo * item = pool.get(i);
+	K_ASSERT(item != nullptr);
+	K_ASSERT(item->i == i * 2);
+	K_ASSERT(item->f == float(i) * 2.f + 1.f);
+}
+K_ASSERT(pool.size() == 1024);
+K_ASSERT(pool.capacity() == 1024);
+
+// Check inserted items via get
+for(U64 i = 0; i < 1024; ++i)
+{
+	const Foo * item = pool.get(i);
+	K_ASSERT(item != nullptr);
+	K_ASSERT(item->i == i * 2);
+	K_ASSERT(item->f == float(i) * 2.f + 1.f);
+}
+
+// Check inserted items via []
+for(U64 i = 0; i < 1024; ++i)
+{
+	const Foo & item = pool[i];
+	K_ASSERT(item.i == i * 2);
+	K_ASSERT(item.f == float(i) * 2.f + 1.f);
+}
+
+// Check valid
+for(U64 i = 0; i < 1024; ++i)
+{
+	const bool b = pool.valid(i);
+	K_ASSERT(b);
+}
+
+// Remove every other item
+for(U64 i = 0; i < 1024; i += 2)
+{
+	const bool b = pool.remove(i);
+	K_ASSERT(b);
+}
+K_ASSERT(pool.size() == 512);
+K_ASSERT(pool.capacity() == 1024);
+
+// Check not valid
+for(U64 i = 0; i < 1024; i += 2)
+{
+	const bool b = pool.valid(i);
+	K_ASSERT(!b);
+}
+
+// Check valid
+for(U64 i = 1; i < 1024; i += 2)
+{
+	const bool b = pool.valid(i);
+	K_ASSERT(b);
+}
+
+// foreach
+{
+	U64 idx = 1;
+	pool.foreach([&idx](Foo const & foo, U64 itemIdx)
+	{
+		K_ASSERT(foo.i == idx * 2);
+		K_ASSERT(foo.f == float(idx) * 2.f + 1.f);
+		K_ASSERT(itemIdx == idx);
+		idx += 2;
+	});
+}
+
+// emplace after removal -> check reuse
+{
+	for(U64 i = 0; i < 512; ++i)
+	{
+		const U64 idx = pool.emplace(5 + i * 2, 6.f + float(i) * 2.f + 1.f);
+		K_ASSERT(idx == i * 2);
+		const Foo * item = pool.get(idx);
+		K_ASSERT(item != nullptr);
+		K_ASSERT(item->i == 5 + i * 2);
+		K_ASSERT(item->f == 6.f + float(i) * 2.f + 1.f);
+	}
+	K_ASSERT(pool.size() == 1024);
+	K_ASSERT(pool.capacity() == 1024);
+}
+{% endhighlight %}
+
+</details>
 
 
 ### ResourceHandleManager
